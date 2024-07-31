@@ -54,7 +54,8 @@
 #include "hal/spi/spi_drv_nrf52.h"
 #endif
 
-#if defined(PLATFORM_nxp_p1021) || defined(PLATFORM_nxp_t1024)
+#if defined(PLATFORM_nxp_p1021) || defined(PLATFORM_nxp_t1024) || \
+    defined(PLATFORM_nxp_ls1028a)
 #include "hal/spi/spi_drv_nxp.h"
 #endif
 
