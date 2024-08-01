@@ -113,7 +113,9 @@ void RAMFUNCTION wolfBoot_start(void)
 {
     int active, ret = 0;
     struct wolfBoot_image os_image;
+#ifdef WOLFBOOT_UBOOT_LEGACY
     uint8_t *image_ptr;
+#endif
     uint32_t *load_address = NULL;
     uint32_t *source_address = NULL;
 #ifdef WOLFBOOT_FIXED_PARTITIONS
@@ -127,7 +129,7 @@ void RAMFUNCTION wolfBoot_start(void)
     memset(&os_image, 0, sizeof(struct wolfBoot_image));
 
     for (;;) {
-    #ifdef WOLFBOOT_FIXED_PARTITIONS
+    #if defined(WOLFBOOT_DUALBOOT) && defined(WOLFBOOT_FIXED_PARTITIONS)
         active = wolfBoot_dualboot_candidate();
         if (active == PART_BOOT)
             source_address = (uint32_t*)WOLFBOOT_PARTITION_BOOT_ADDRESS;
@@ -141,7 +143,7 @@ void RAMFUNCTION wolfBoot_start(void)
             wolfBoot_panic();
         }
 
-    #ifdef WOLFBOOT_FIXED_PARTITIONS
+    #if defined(WOLFBOOT_DUALBOOT) && defined(WOLFBOOT_FIXED_PARTITIONS)
         wolfBoot_printf("Trying %s partition at %p\n",
                 active == PART_BOOT ? "Boot" : "Update", source_address);
     #else
