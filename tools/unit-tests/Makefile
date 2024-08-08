@@ -59,7 +59,7 @@ unit-delta:CFLAGS+=-DNVM_FLASH_WRITEONCE -DMOCK_PARTITIONS -DDELTA_UPDATES -DDEL
 
 
 
-WOLFCRYPT_CFLAGS+=-DWOLFSSL_USER_SETTINGS -DWOLFBOOT_SIGN_ECC256 -DWOLFBOOT_SIGN_ECC256 -DHAVE_ECC_KEY_IMPORT  -D__WOLFBOOT
+WOLFCRYPT_CFLAGS+=-DWOLFSSL_USER_SETTINGS -DWOLFBOOT_SIGN_ECC256 -DWOLFBOOT_SIGN_ECC256 -DHAVE_ECC_KEY_IMPORT -D__WOLFBOOT
 
 
 
@@ -86,7 +86,7 @@ unit-chacha20: ../../include/target.h unit-extflash.c
 	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
 unit-pci:  unit-pci.c ../../src/pci.c
-	gcc -o $@ $< $(CFLAGS) $(LDFLAGS)
+	gcc -o $@ $< $(CFLAGS) -DWOLFBOOT_USE_PCI $(LDFLAGS)
 
 unit-mock-state: ../../include/target.h unit-mock-state.c
 	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
