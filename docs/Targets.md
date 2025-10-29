@@ -12,6 +12,7 @@ This README describes configuration of supported targets.
 * [Kontron VX3060-S2](#kontron-vx3060-s2)
 * [Microchip PIC32CK](#microchip-pic32ck)
 * [Microchip PIC32CZ](#microchip-pic32cz)
+* [Microchip PolarFire SoC](#microchip-polarfire-soc)
 * [Microchip SAMA5D3](#microchip-sama5d3)
 * [Microchip SAME51](#microchip-same51)
 * [Nordic nRF52840](#nordic-nrf52840)
@@ -776,6 +777,48 @@ In another terminal:
 riscv64-unknown-elf-gdb wolfboot.elf -ex "set remotetimeout 240" -ex "target extended-remote localhost:3333"
 add-symbol-file test-app/image.elf 0x20020100
 ```
+
+
+## Microchip PolarFire SoC
+
+The PolarFire SoC is a 64-bit RISC-V SoC featuring a five-core CPU cluster (1× E51 monitor core and 4× U54 application cores) and FPGA fabric. Tested with MPFS250.
+
+### Features
+* RISC-V 64-bit architecture (rv64imac)
+* Five-core CPU: 1× E51 monitor + 4× U54 application cores
+* Integrated DDR3/4, LPDDR3/4 controller and PHY
+* PCIe Gen2, USB 2.0, and Gigabit Ethernet interfaces
+* Secure boot capabilities
+* Low power consumption
+* External flash support
+
+### Building PolarFire SoC
+
+All build settings come from .config file. For this platform use `TARGET=mpfs250` and `ARCH=RISCV64`.
+
+See example configuration at `config/examples/polarfire_mpfs250.config`.
+
+```sh
+cp config/examples/polarfire_mpfs250.config .config
+make
+```
+
+**Note**: This is a template implementation. The following components need to be completed:
+* HAL implementation for flash read/write/erase operations
+* UART initialization and communication
+* Clock/PLL configuration
+* Memory map configuration for your specific board setup
+* Flash layout customization based on your design
+
+### Memory Map
+
+The PolarFire SoC memory map should be configured based on your specific board and design:
+* Boot code location (typically LSRAM or flash)
+* DDR memory for application execution
+* Flash memory for firmware storage
+* Peripheral base addresses
+
+**TODO**: Update memory map in `hal/mpfs250.ld` and configuration files based on your hardware setup.
 
 
 ## STM32F7
