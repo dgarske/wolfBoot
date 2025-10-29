@@ -1278,7 +1278,11 @@ void RAMFUNCTION wolfBoot_start(void)
     (void)hal_hsm_server_cleanup();
 #endif
     hal_prepare_boot();
+#ifdef MMU
+    do_boot((void *)boot.fw_base, (void *)boot.dts_base);
+#else
     do_boot((void *)boot.fw_base);
+#endif
 }
 
 #ifdef WOLFBOOT_ARMORED
