@@ -19,12 +19,16 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* RISC-V 64-bit boot code for PolarFire SoC MPFS250 */
+/* RISC-V 64-bit boot code */
 
 #include <stdint.h>
 
 #include "image.h"
 #include "loader.h"
+
+#ifdef TARGET_mpfs250
+#include "hal/mpfs250.h"
+#endif
 
 extern void trap_entry(void);
 extern void trap_exit(void);
@@ -101,14 +105,13 @@ void isr_empty(void)
     /* Empty interrupt handler */
 }
 
-#ifdef RAM_CODE
-/* TODO: Add reboot implementation for PolarFire SoC if needed */
-void RAMFUNCTION arch_reboot(void)
+void WEAKFUNCTION arch_reboot(void)
 {
-    /* TODO: Implement reboot using watchdog or system reset */
+#ifdef TARGET_mpfs250
+    SYSREG_MSS_RESET_CR = 0xDEAD;
+#endif
+
     while(1)
         ;
     wolfBoot_panic();
 }
-#endif /* RAM_CODE */
-

@@ -27,6 +27,14 @@
 
 /* PolarFire SoC MPFS250T board specific configuration */
 
+/* Hardware Base Address */
+#define SYSREG_BASE 0x20002000
+
+/* Write "0xDEAD" to cause a full MSS reset*/
+#define SYSREG_MSS_RESET_CR (*((volatile uint32_t*)(SYSREG_BASE + 0x18)))
+
+
+
 /* declarations */
 
 /* Memory map definitions */

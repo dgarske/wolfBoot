@@ -38,6 +38,11 @@
 #include "printf.h"
 #include "loader.h"
 
+
+//default 0x80000000 if !RISCV_SMODE
+//default 0x80200000 if RISCV_SMODE
+
+
 /* TODO: Add PolarFire SoC register definitions */
 /* TODO: Add UART register definitions */
 /* TODO: Add Flash/SPI register definitions */

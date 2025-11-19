@@ -803,22 +803,17 @@ cp config/examples/polarfire_mpfs250.config .config
 make
 ```
 
-**Note**: This is a template implementation. The following components need to be completed:
-* HAL implementation for flash read/write/erase operations
-* UART initialization and communication
-* Clock/PLL configuration
-* Memory map configuration for your specific board setup
-* Flash layout customization based on your design
+### Flashing PolarFire SoC
 
-### Memory Map
+The wolfBoot.elf can be flashed to eNVM at 0x100 offset using:
 
-The PolarFire SoC memory map should be configured based on your specific board and design:
-* Boot code location (typically LSRAM or flash)
-* DDR memory for application execution
-* Flash memory for firmware storage
-* Peripheral base addresses
+```sh
+$SC_INSTALL_DIR/eclipse/jre/bin/java -jar \
+    $SC_INSTALL_DIR/extras/mpfs/mpfsBootmodeProgrammer.jar \
+    --bootmode 1 --die MPFS250T --package FCVG484 --workdir $PWD wolfboot.elf
+```
 
-**TODO**: Update memory map in `hal/mpfs250.ld` and configuration files based on your hardware setup.
+The mpfsBootmodeProgrammer adds 0x100 of information to header.
 
 
 ## STM32F7
