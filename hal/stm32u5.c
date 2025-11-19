@@ -471,8 +471,6 @@ void RAMFUNCTION hal_flash_dualbank_swap(void)
 
 static void led_unsecure()
 {
-    uint32_t pin;
-
     /* Enable clock for User LED GPIOs */
     RCC_AHB2ENR1_CLOCK_ER|= GPIOH_AHB2ENR1_CLOCK_ER;
 
@@ -487,8 +485,6 @@ static void RAMFUNCTION fork_bootloader(void)
 {
     uint8_t *data = (uint8_t *) FLASHMEM_ADDRESS_SPACE;
     uint32_t dst  = FLASH_BANK2_BASE;
-    uint32_t r = 0, w = 0;
-    int i;
 
     /* Return if content already matches */
     if (memcmp(data, (void *)FLASH_BANK2_BASE, BOOTLOADER_SIZE) == 0)
