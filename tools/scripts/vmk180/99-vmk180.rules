@@ -1,0 +1,34 @@
+# VMK180 Development Board USB Device Rules
+# Install to: /etc/udev/rules.d/99-vmk180.rules
+# Reload with: sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# ============================================================================
+# USB Relay Controller (STMicroelectronics STM32 Virtual ComPort)
+# ============================================================================
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="vmk180_relay"
+
+# ============================================================================
+# VMK180 Board UART Ports (Xilinx FT4232H Quad UART)
+# Serial: 532143136442
+# ============================================================================
+# Interface 0: JTAG/Debug
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="vmk180_jtag"
+
+# Interface 1: PMC (Platform Management Controller) UART
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="01", SYMLINK+="vmk180_pmc"
+
+# Interface 2: APU (Application Processing Unit) UART - Main Console
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="vmk180_uart"
+
+# Interface 3: RPU (Real-time Processing Unit) UART
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="03", SYMLINK+="vmk180_rpu"
+
+# ============================================================================
+# Silicon Labs CP2108 Quad UART (likely Lauterbach or other debug adapter)
+# Serial: 189CC061CB916DA911ED4DE37CB5D23
+# ============================================================================
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="debug_uart0"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="01", SYMLINK+="debug_uart1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="debug_uart2"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="03", SYMLINK+="debug_uart3"
+
