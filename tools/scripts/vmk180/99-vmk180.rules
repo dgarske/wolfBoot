@@ -2,33 +2,29 @@
 # Install to: /etc/udev/rules.d/99-vmk180.rules
 # Reload with: sudo udevadm control --reload-rules && sudo udevadm trigger
 
-# ============================================================================
-# USB Relay Controller (STMicroelectronics STM32 Virtual ComPort)
-# ============================================================================
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="vmk180_relay"
+# USB Relay Controller: STM32 Virtual ComPort in FS Mode
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", ATTRS{serial}=="7E7A62981138", SYMLINK+="vmk180_relay"
 
-# ============================================================================
-# VMK180 Board UART Ports (Xilinx FT4232H Quad UART)
-# Serial: 532143136442
-# ============================================================================
-# Interface 0: JTAG/Debug
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="vmk180_jtag"
+# Unknown USB serial: CP2108 Quad USB to UART Bridge Controller
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ATTRS{serial}=="189CC061CB916DA911ED4DE37CB5D23", SYMLINK+="vmk180_ttyUSB0"
 
-# Interface 1: PMC (Platform Management Controller) UART
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="01", SYMLINK+="vmk180_pmc"
+# Unknown USB serial: CP2108 Quad USB to UART Bridge Controller
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ATTRS{serial}=="189CC061CB916DA911ED4DE37CB5D23", SYMLINK+="vmk180_ttyUSB1"
 
-# Interface 2: APU (Application Processing Unit) UART - Main Console
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="vmk180_uart"
+# Unknown USB serial: CP2108 Quad USB to UART Bridge Controller
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ATTRS{serial}=="189CC061CB916DA911ED4DE37CB5D23", SYMLINK+="vmk180_ttyUSB2"
 
-# Interface 3: RPU (Real-time Processing Unit) UART
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ENV{ID_USB_INTERFACE_NUM}=="03", SYMLINK+="vmk180_rpu"
+# Unknown USB serial: CP2108 Quad USB to UART Bridge Controller
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ATTRS{serial}=="189CC061CB916DA911ED4DE37CB5D23", SYMLINK+="vmk180_ttyUSB3"
 
-# ============================================================================
-# Silicon Labs CP2108 Quad UART (likely Lauterbach or other debug adapter)
-# Serial: 189CC061CB916DA911ED4DE37CB5D23
-# ============================================================================
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="debug_uart0"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="01", SYMLINK+="debug_uart1"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="debug_uart2"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea71", ENV{ID_USB_INTERFACE_NUM}=="03", SYMLINK+="debug_uart3"
+# VMK180 UART Console: VMK180
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ATTRS{serial}=="532143136442", SYMLINK+="vmk180_uart"
 
+# VMK180 UART Console: VMK180
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ATTRS{serial}=="532143136442", SYMLINK+="vmk180_uart"
+
+# VMK180 UART Console: VMK180
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ATTRS{serial}=="532143136442", SYMLINK+="vmk180_uart"
+
+# VMK180 UART Console: VMK180
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ATTRS{serial}=="532143136442", SYMLINK+="vmk180_uart"

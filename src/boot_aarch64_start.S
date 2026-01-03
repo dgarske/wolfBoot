@@ -26,6 +26,10 @@
 #include "hal/zynq.h"
 #endif
 
+#ifdef TARGET_versal
+#include "hal/versal.h"
+#endif
+
 #ifdef TARGET_nxp_ls1028a
 #include "hal/nxp_ls1028a.h"
 #endif
