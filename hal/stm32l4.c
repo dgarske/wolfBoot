@@ -63,6 +63,16 @@ static uint32_t RAMFUNCTION GetBank(uint32_t Addr)
     return bank;
 }
 
+static void RAMFUNCTION flash_set_waitstates(int waitstates)
+{
+    FLASH->ACR |= (waitstates | FLASH_ACR_DCEN | FLASH_ACR_ICEN);
+}
+
+/* Include flash configuration and generic implementation for write */
+#include "hal/flash/config/stm32_flash_l4.h"
+#include "hal/flash/stm32_flash.c"
+
+/* L4-specific functions that use HAL library */
 static void RAMFUNCTION flash_clear_errors(void)
 {
      __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_ALL_ERRORS);
@@ -107,69 +117,8 @@ int RAMFUNCTION hal_flash_erase(uint32_t address,int len)
     return 0;
 }
 
-
-static void RAMFUNCTION flash_set_waitstates(int waitstates)
-{
-    FLASH->ACR |= (waitstates | FLASH_ACR_DCEN | FLASH_ACR_ICEN);
-}
-
-static RAMFUNCTION void flash_wait_complete(void)
-{
-    while ((FLASH->SR & FLASH_SR_BSY) == FLASH_SR_BSY)
-        ;
-}
-
-int RAMFUNCTION hal_flash_write(uint32_t address, const uint8_t *data, int len)
-{
-    int i = 0;
-    uint32_t *dst, *src;
-    uint32_t pdword[2] __attribute__((aligned(16)));
-    uint32_t reg;
-    int ret = -1;
-
-    flash_clear_errors();
-    reg = FLASH->CR & (~FLASH_CR_FSTPG);
-    FLASH->CR = reg | FLASH_CR_PG;
-
-    while (i < len) {
-        flash_clear_errors();
-        if ((len - i > 3) && ((((address + i) & 0x07) == 0)  && ((((uint32_t)data) + i) & 0x07) == 0)) {
-            uint32_t idx = i >> 2;
-            src = (uint32_t *)data;
-            dst = (uint32_t *)(address);
-            pdword[0] = src[idx];
-            pdword[1] = src[idx + 1];
-            flash_wait_complete();
-            dst[idx] = pdword[0];
-            dst[idx + 1] = pdword[1];
-            flash_wait_complete();
-            i+=8;
-        } else {
-            uint32_t val[2];
-            uint8_t *vbytes = (uint8_t *)(val);
-            int off = (address + i) - (((address + i) >> 3) << 3);
-            uint32_t base_addr = address & (~0x07); /* aligned to 64 bit */
-            int u32_idx = (i >> 2);
-            dst = (uint32_t *)(base_addr);
-            val[0] = dst[u32_idx];
-            val[1] = dst[u32_idx + 1];
-            while ((off < 8) && (i < len))
-                vbytes[off++] = data[i++];
-            dst[u32_idx] = val[0];
-            dst[u32_idx + 1] = val[1];
-            flash_wait_complete();
-        }
-    }
-    if ((FLASH->SR &FLASH_SR_PROGERR)!= FLASH_SR_PROGERR) {
-        ret=0;
-    }
-    if ((FLASH->SR & FLASH_SR_EOP) == FLASH_SR_EOP) {
-        FLASH->SR |= FLASH_SR_EOP;
-    }
-    FLASH->CR &= ~FLASH_CR_PG;
-
-    return ret;
-}
+/* Note: hal_flash_write is now provided by stm32_flash.c */
+/* hal_flash_unlock/lock/erase are kept here since they use HAL library functions */
 
 static void clock_pll_off(void)
 {

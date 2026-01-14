@@ -133,108 +133,11 @@ static void RAMFUNCTION flash_set_waitstates(unsigned int waitstates)
         FLASH_ACR |= ((reg & ~FLASH_ACR_LATENCY_MASK) | waitstates);
 }
 
-static RAMFUNCTION void flash_wait_complete(void)
-{
-    while ((FLASH_SR & (FLASH_SR_BSY | FLASH_SR_CFGBSY)) != 0)
-        ;
-}
+/* Include flash configuration and generic implementation */
+#include "hal/flash/config/stm32_flash_wb.h"
+#include "hal/flash/stm32_flash.c"
 
-static void RAMFUNCTION flash_clear_errors(void)
-{
-    FLASH_SR |= ( FLASH_SR_SIZERR | FLASH_SR_PGAERR | FLASH_SR_WRPERR |  FLASH_SR_PROGERR);
-}
-
-
-
-void RAMFUNCTION hal_flash_unlock(void)
-{
-    flash_wait_complete();
-    if ((FLASH_CR & FLASH_CR_LOCK) != 0) {
-        FLASH_KEY = FLASH_KEY1;
-        DMB();
-        FLASH_KEY = FLASH_KEY2;
-        DMB();
-        while ((FLASH_CR & FLASH_CR_LOCK) != 0)
-            ;
-    }
-}
-
-void RAMFUNCTION hal_flash_lock(void)
-{
-    flash_wait_complete();
-    if ((FLASH_CR & FLASH_CR_LOCK) == 0)
-        FLASH_CR |= FLASH_CR_LOCK;
-}
-
-int RAMFUNCTION hal_flash_write(uint32_t address, const uint8_t *data, int len)
-{
-    int i = 0;
-    uint32_t *src, *dst;
-    uint32_t pdword[2] __attribute__((aligned(16)));
-    uint32_t reg;
-
-    flash_clear_errors();
-    reg = FLASH_CR & (~FLASH_CR_FSTPG);
-    FLASH_CR = reg | FLASH_CR_PG;
-
-    while (i < len) {
-        flash_clear_errors();
-        if ((len - i > 3) && ((((address + i) & 0x07) == 0)  && ((((uint32_t)data) + i) & 0x07) == 0)) {
-            uint32_t idx = i >> 2;
-            src = (uint32_t *)data;
-            dst = (uint32_t *)(address);
-            pdword[0] = src[idx];
-            pdword[1] = src[idx + 1];
-            flash_wait_complete();
-            dst[idx] = pdword[0];
-            dst[idx + 1] = pdword[1];
-            flash_wait_complete();
-            i+=8;
-        } else {
-            uint32_t val[2];
-            uint8_t *vbytes = (uint8_t *)(val);
-            int off = (address + i) - (((address + i) >> 3) << 3);
-            uint32_t base_addr = address & (~0x07); /* aligned to 64 bit */
-            int u32_idx = (i >> 2);
-            dst = (uint32_t *)(base_addr);
-            val[0] = dst[u32_idx];
-            val[1] = dst[u32_idx + 1];
-            while ((off < 8) && (i < len))
-                vbytes[off++] = data[i++];
-            dst[u32_idx] = val[0];
-            dst[u32_idx + 1] = val[1];
-            flash_wait_complete();
-        }
-    }
-    if ((FLASH_SR & FLASH_SR_EOP) == FLASH_SR_EOP)
-        FLASH_SR |= FLASH_SR_EOP;
-    FLASH_CR &= ~FLASH_CR_PG;
-    return 0;
-}
-
-
-int RAMFUNCTION hal_flash_erase(uint32_t address, int len)
-{
-    uint32_t end_address;
-    uint32_t p;
-    if (len == 0)
-        return -1;
-    address -= FLASHMEM_ADDRESS_SPACE;
-    end_address = address + len - 1;
-    flash_wait_complete();
-    for (p = address; p < end_address; p += FLASH_PAGE_SIZE) {
-        uint32_t reg;
-        flash_clear_errors();
-        reg = FLASH_CR & ~((FLASH_CR_PNB_MASK << FLASH_CR_PNB_SHIFT) | FLASH_CR_FSTPG | FLASH_CR_PG);
-        FLASH_CR = reg | ((p >> 12) << FLASH_CR_PNB_SHIFT) | FLASH_CR_PER;
-        DMB();
-        FLASH_CR |= FLASH_CR_STRT;
-        DMB();
-        flash_wait_complete();
-        FLASH_CR &= ~(FLASH_CR_PER);
-    }
-    return 0;
-}
+/* hal_flash_erase is now provided by stm32_flash.c */
 
 static void clock_pll_off(void)
 {

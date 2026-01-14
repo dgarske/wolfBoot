@@ -335,7 +335,7 @@ else
       ifneq (,$(findstring stm32,$(TARGET)))
         OBJS+=hal/stm32_tz.o
       endif
-      CFLAGS+=-mcmse
+      CFLAGS+=-mcmse -DTZEN=1
       ifeq ($(WOLFCRYPT_TZ),1)
         CORTEXM_ARM_EXTRA_OBJS=
         CORTEXM_ARM_EXTRA_CFLAGS=

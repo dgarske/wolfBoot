@@ -38,6 +38,12 @@
 #include "image.h"
 #include "hal.h"
 #include "target.h"
+
+/* This file is only compiled when TZEN=1 (TrustZone enabled) */
+#if !defined(TZEN) || TZEN != 1
+#error "stm32_tz.c should only be compiled when TZEN=1"
+#endif
+
 #if defined (__ARM_FEATURE_CMSE) && (__ARM_FEATURE_CMSE == 3U) && (!defined(FLAGS_HOME) || !defined(DISABLE_BACKUP))
 
 
