@@ -171,8 +171,7 @@ int RAMFUNCTION hal_flash_erase(uint32_t address, int len)
     (void)len;
     return -1;
 #else
-    uint32_t end_address;
-    uint32_t p;
+    uint32_t end_address, p, page;
 
     if (len == 0)
         return -1;
@@ -181,7 +180,6 @@ int RAMFUNCTION hal_flash_erase(uint32_t address, int len)
     flash_wait_complete();
 
     for (p = address; p < end_address; p += FLASH_ERASE_PAGE_SIZE) {
-        uint32_t page;
 
 #ifdef TARGET_stm32g0
         /* G0 erase: address needs FLASHMEM_ADDRESS_SPACE subtracted */

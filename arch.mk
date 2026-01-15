@@ -132,6 +132,8 @@ ifeq ($(ARCH),ARM)
   endif
 
   ifeq ($(TARGET),stm32c0)
+    # UART is implemented directly in hal/stm32c0.c, not in uart_drv file
+    UART_TARGET=
     CORTEX_M0=1
     ARCH_FLASH_OFFSET=0x08000000
     OBJS+=hal/flash/flash_drv_stm32.o
@@ -1446,8 +1448,11 @@ ifeq ($(DEBUG_UART),1)
   CFLAGS+=-DDEBUG_UART
 
   # If this target has a UART driver, add it to the OBJS
+  # Skip uart_drv for stm32c0 - UART is implemented directly in hal/stm32c0.c
   ifneq (,$(wildcard hal/uart/uart_drv_$(TARGET).c))
-    OBJS+=hal/uart/uart_drv_$(TARGET).o
+    ifneq ($(TARGET),stm32c0)
+      OBJS+=hal/uart/uart_drv_$(TARGET).o
+    endif
   endif
 endif
 

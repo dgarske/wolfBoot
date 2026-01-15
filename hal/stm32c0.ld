@@ -10,6 +10,7 @@ SECTIONS
     {
         _start_text = .;
         KEEP(*(.isr_vector))
+        *(.keystore*)  /* Place keystore early to pack better */
         *(.text*)
         *(.rodata*)
         . = ALIGN(4);

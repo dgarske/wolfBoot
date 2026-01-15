@@ -29,7 +29,16 @@
 
 #ifdef TARGET_stm32c0
 
+#ifdef DEBUG_UART
+extern int uart_init(uint32_t bitrate, uint8_t data, char parity, uint8_t stop);
+extern void uart_write(const char *buf, unsigned int len);
+#endif
+
 void main(void) {
+#ifdef DEBUG_UART
+    uart_init(115200, 8, 'N', 1);
+    uart_write("STM32C0 Test Application\n", 25);
+#endif
     boot_led_on();
     /* Wait for reboot */
     while(1)
