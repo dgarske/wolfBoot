@@ -68,11 +68,10 @@ static void RAMFUNCTION flash_set_waitstates(int waitstates)
     FLASH->ACR |= (waitstates | FLASH_ACR_DCEN | FLASH_ACR_ICEN);
 }
 
-/* Include flash configuration and generic implementation for write */
-#include "hal/flash/config/stm32_flash_l4.h"
-#include "hal/flash/stm32_flash.c"
+/* Include flash driver header (implementation compiled separately) */
+#include "hal/flash/flash_drv_stm32.h"
 
-/* L4-specific functions that use HAL library */
+/* L4-specific functions that use HAL library - override driver functions */
 static void RAMFUNCTION flash_clear_errors(void)
 {
      __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_ALL_ERRORS);
@@ -117,8 +116,8 @@ int RAMFUNCTION hal_flash_erase(uint32_t address,int len)
     return 0;
 }
 
-/* Note: hal_flash_write is now provided by stm32_flash.c */
-/* hal_flash_unlock/lock/erase are kept here since they use HAL library functions */
+/* Note: hal_flash_write is provided by flash_drv_stm32.c */
+/* hal_flash_unlock/lock/erase are overridden here since they use HAL library */
 
 static void clock_pll_off(void)
 {

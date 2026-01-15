@@ -126,6 +126,18 @@ ifeq ($(TZEN),1)
     endif
 else
     APP_OBJS+=../hal/$(TARGET).o
+  ifeq ($(TARGET),stm32c0)
+    APP_OBJS+=../hal/flash/flash_drv_stm32.o
+  endif
+  ifeq ($(TARGET),stm32g0)
+    APP_OBJS+=../hal/flash/flash_drv_stm32.o
+  endif
+  ifeq ($(TARGET),stm32wb)
+    APP_OBJS+=../hal/flash/flash_drv_stm32.o
+  endif
+  ifeq ($(TARGET),stm32l4)
+    APP_OBJS+=../hal/flash/flash_drv_stm32.o
+  endif
 endif
 
 ifeq ($(ARCH),RISCV)

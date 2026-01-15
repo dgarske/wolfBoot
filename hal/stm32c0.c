@@ -118,9 +118,8 @@ static void RAMFUNCTION flash_set_waitstates(unsigned int waitstates)
         FLASH_ACR =  (reg & ~mask_val) | set_val;
 }
 
-/* Include flash configuration and generic implementation */
-#include "hal/flash/config/stm32_flash_c0.h"
-#include "hal/flash/stm32_flash.c"
+/* Include flash driver header (implementation compiled separately) */
+#include "hal/flash/flash_drv_stm32.h"
 
 static void clock_pll_off(void)
 {

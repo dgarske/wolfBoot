@@ -133,11 +133,8 @@ static void RAMFUNCTION flash_set_waitstates(unsigned int waitstates)
         FLASH_ACR |= ((reg & ~FLASH_ACR_LATENCY_MASK) | waitstates);
 }
 
-/* Include flash configuration and generic implementation */
-#include "hal/flash/config/stm32_flash_wb.h"
-#include "hal/flash/stm32_flash.c"
-
-/* hal_flash_erase is now provided by stm32_flash.c */
+/* Include flash driver header (implementation compiled separately) */
+#include "hal/flash/flash_drv_stm32.h"
 
 static void clock_pll_off(void)
 {

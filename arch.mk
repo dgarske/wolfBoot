@@ -134,11 +134,13 @@ ifeq ($(ARCH),ARM)
   ifeq ($(TARGET),stm32c0)
     CORTEX_M0=1
     ARCH_FLASH_OFFSET=0x08000000
+    OBJS+=hal/flash/flash_drv_stm32.o
   endif
 
   ifeq ($(TARGET),stm32g0)
     CORTEX_M0=1
     ARCH_FLASH_OFFSET=0x08000000
+    OBJS+=hal/flash/flash_drv_stm32.o
   endif
 
   ifeq ($(TARGET),stm32f1)
@@ -167,6 +169,7 @@ ifeq ($(ARCH),ARM)
   ifeq ($(TARGET),stm32l4)
     SPI_TARGET=stm32
     ARCH_FLASH_OFFSET=0x08000000
+    OBJS+=hal/flash/flash_drv_stm32.o
     OBJS+=$(STM32CUBE)/Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_flash.o
     OBJS+=$(STM32CUBE)/Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_flash_ex.o
     CFLAGS+=-DSTM32L4A6xx -DUSE_HAL_DRIVER -Isrc -Ihal \
@@ -191,6 +194,7 @@ ifeq ($(ARCH),ARM)
   ifeq ($(TARGET),stm32wb)
     ARCH_FLASH_OFFSET=0x08000000
     SPI_TARGET=stm32
+    OBJS+=hal/flash/flash_drv_stm32.o
     ifneq ($(PKA),0)
       PKA_EXTRA_OBJS+= $(STM32CUBE)/Drivers/STM32WBxx_HAL_Driver/Src/stm32wbxx_hal_pka.o $(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/port/st/stm32.o
       PKA_EXTRA_CFLAGS+=-DWOLFSSL_STM32WB -DWOLFSSL_STM32_PKA -DWOLFSSL_STM32_CUBEMX -DNO_STM32_HASH -DSTM32WB55xx
