@@ -266,7 +266,7 @@ int uart_init(uint32_t bitrate, uint8_t data, char parity, uint8_t stop)
     UART_CR1(UART_BASE) &= ~UART_CR1_OVER8;
 
     /* BRR = PCLK1 / bitrate (16x oversampling handled by hardware) */
-    UART_BRR(UART_BASE) = (uint16_t)(CLOCK_SPEED / bitrate);
+    UART_BRR(UART_BASE) = (uint16_t)(CLOCK_SPEED / bitrate) & 0xFFF0;
 
     /* Configure data bits */
     if (data == 8)

@@ -39,6 +39,7 @@
 #define RCC_CR              (*(volatile uint32_t *)(RCC_BASE + 0x00))  /* RM0444 - 5.4.1 */
 #define RCC_PLLCFGR         (*(volatile uint32_t *)(RCC_BASE + 0x0C))  /* RM0444 - 5.4.4 */
 #define RCC_CFGR            (*(volatile uint32_t *)(RCC_BASE + 0x08))  /* RM0444 - 5.4.3 */
+#define RCC_IOPENR          (*(volatile uint32_t *)(RCC_BASE + 0x2C))  /* RM0444 - 5.4.10 - GPIO clock enable */
 #define APB1_CLOCK_ER       (*(volatile uint32_t *)(RCC_BASE + 0x3C))
 #define APB2_CLOCK_ER       (*(volatile uint32_t *)(RCC_BASE + 0x40))
 
@@ -139,11 +140,11 @@ static void clock_pll_on(int powersave)
 
     /* Select clock parameters (CPU Speed = 64MHz) */
     cpu_freq = 64000000;
-    pllm = 4;
-    plln = 80;
-    pllp = 10;
-    pllq = 5;
-    pllr = 5;
+    pllm = 1;
+    plln = 8;
+    pllp = 2;
+    pllq = 2;
+    pllr = 2;
     hpre  = RCC_PRESCALER_DIV_NONE;
     ppre = RCC_PRESCALER_DIV_NONE;
     flash_waitstates = 2;
@@ -205,9 +206,166 @@ static void clock_pll_on(int powersave)
     APB2_CLOCK_ER |= SYSCFG_APB2_CLOCK_ER_VAL;
 }
 
+/* Include flash driver header (implementation compiled separately) */
+#include "hal/flash/flash_drv_stm32.h"
+
+#ifdef DEBUG_UART
+
+/* UART base addresses */
+#define UART1_BASE            (0x40013800)
+#define UART2_BASE            (0x40004400)
+
+/* UART register offsets - parameterized by base address */
+#define UART_CR1(base)        (*(volatile uint32_t *)((base) + 0x00))
+#define UART_CR2(base)        (*(volatile uint32_t *)((base) + 0x04))
+#define UART_CR3(base)        (*(volatile uint32_t *)((base) + 0x08))
+#define UART_BRR(base)        (*(volatile uint32_t *)((base) + 0x0C))
+#define UART_ISR(base)        (*(volatile uint32_t *)((base) + 0x1C))
+#define UART_ICR(base)        (*(volatile uint32_t *)((base) + 0x20))
+#define UART_RDR(base)        (*(volatile uint32_t *)((base) + 0x24))
+#define UART_TDR(base)        (*(volatile uint32_t *)((base) + 0x28))
+#define UART_PRESC(base)      (*(volatile uint32_t *)((base) + 0x2C))
+
+/* Select which UART to use (UART2 = ST-Link VCP on Nucleo boards) */
+#define UART_BASE             UART2_BASE
+
+/* UART CR1 register bits */
+#define UART_CR1_UART_ENABLE    (1 << 0)
+#define UART_CR1_RX_ENABLE      (1 << 2)
+#define UART_CR1_TX_ENABLE      (1 << 3)
+#define UART_CR1_PARITY_ODD     (1 << 9)
+#define UART_CR1_PARITY_ENABLED (1 << 10)
+#define UART_CR1_SYMBOL_LEN     (1 << 12)  /* M0 bit: word length */
+#define UART_CR1_OVER8          (1 << 15)  /* 0=16x oversampling, 1=8x */
+
+/* UART CR2/ISR register bits */
+#define UART_CR2_STOPBITS       (3 << 12)
+#define UART_ISR_TX_EMPTY       (1 << 7)
+#define UART_ISR_RX_NOTEMPTY    (1 << 5)
+
+/* GPIOA for UART pins */
+#define GPIOA_BASE             (0x50000000)
+#define GPIOA_MODE             (*(volatile uint32_t *)(GPIOA_BASE + 0x00))
+#define GPIOA_AFL              (*(volatile uint32_t *)(GPIOA_BASE + 0x20))
+
+#define GPIO_MODE_AF           (2)
+#define UART2_PIN_AF           1  /* AF1 for UART2 on G0 */
+#define UART2_RX_PIN           3  /* PA3 */
+#define UART2_TX_PIN           2  /* PA2 */
+
+#define IOPAEN                 (1 << 0)
+#define UART2_APB1_CLOCK_ER_VAL (1 << 17)
+
+/* Clock configuration for UART
+ * - G0 uses PLL at 64 MHz (HSI16 * 8 / 2 = 64MHz)
+ * - APB prescaler = 1 (no division), so PCLK1 = SYSCLK = 64 MHz
+ * - UART2 uses PCLK1
+ * - BRR = PCLK1 / bitrate (for 16x oversampling, handled by hardware)
+ */
+#ifndef PCLK1_FREQ
+#define PCLK1_FREQ            (64000000)  /* 64 MHz */
+#endif
+#ifndef CLOCK_SPEED
+#define CLOCK_SPEED           PCLK1_FREQ  /* Alias for compatibility */
+#endif
+
+/* Forward declaration - uart_write is called from src/string.c so must be non-static */
+void uart_write(const char *buf, unsigned int len);
+
+static void uart2_pins_setup(void)
+{
+    uint32_t reg;
+    /* Enable GPIOA clock */
+    RCC_IOPENR |= IOPAEN;
+
+    /* Set mode = AF for RX and TX pins */
+    reg = GPIOA_MODE & ~(0x03 << (UART2_RX_PIN * 2));
+    GPIOA_MODE = reg | (GPIO_MODE_AF << (UART2_RX_PIN * 2));
+    reg = GPIOA_MODE & ~(0x03 << (UART2_TX_PIN * 2));
+    GPIOA_MODE = reg | (GPIO_MODE_AF << (UART2_TX_PIN * 2));
+
+    /* Alternate function: use low pins (2 and 3) */
+    reg = GPIOA_AFL & ~(0xf << (UART2_TX_PIN * 4));
+    GPIOA_AFL = reg | (UART2_PIN_AF << (UART2_TX_PIN * 4));
+    reg = GPIOA_AFL & ~(0xf << (UART2_RX_PIN * 4));
+    GPIOA_AFL = reg | (UART2_PIN_AF << (UART2_RX_PIN * 4));
+}
+
+int uart_init(uint32_t bitrate, uint8_t data, char parity, uint8_t stop)
+{
+    uint32_t reg;
+
+    /* Enable pins and configure for AF */
+    uart2_pins_setup();
+
+    /* Enable UART2 clock */
+    APB1_CLOCK_ER |= UART2_APB1_CLOCK_ER_VAL;
+
+    /* Disable UART before configuration */
+    UART_CR1(UART_BASE) &= ~UART_CR1_UART_ENABLE;
+
+    /* Configure UART prescaler to DIV1 (no division) */
+    UART_PRESC(UART_BASE) = 0;
+
+    /* Configure 16x oversampling (OVER8 = 0) */
+    UART_CR1(UART_BASE) &= ~UART_CR1_OVER8;
+
+    /* BRR = PCLK1 / bitrate (16x oversampling handled by hardware) */
+    UART_BRR(UART_BASE) = (uint16_t)(CLOCK_SPEED / bitrate) & 0xFFF0;
+
+    /* Configure data bits */
+    if (data == 8)
+        UART_CR1(UART_BASE) &= ~UART_CR1_SYMBOL_LEN;
+    else
+        UART_CR1(UART_BASE) |= UART_CR1_SYMBOL_LEN;
+
+    /* Configure parity */
+    switch (parity) {
+        case 'O':
+            UART_CR1(UART_BASE) |= UART_CR1_PARITY_ODD;
+            /* fall through to enable parity */
+            /* FALL THROUGH */
+        case 'E':
+            UART_CR1(UART_BASE) |= UART_CR1_PARITY_ENABLED;
+            break;
+        default:
+            UART_CR1(UART_BASE) &= ~(UART_CR1_PARITY_ENABLED | UART_CR1_PARITY_ODD);
+    }
+
+    /* Set stop bits */
+    reg = UART_CR2(UART_BASE) & ~UART_CR2_STOPBITS;
+    if (stop > 1)
+        UART_CR2(UART_BASE) = reg | (2 << 12);
+    else
+        UART_CR2(UART_BASE) = reg;
+
+    /* Configure for TX + RX, turn on */
+    UART_CR1(UART_BASE) |= (UART_CR1_TX_ENABLE | UART_CR1_RX_ENABLE |
+                            UART_CR1_UART_ENABLE);
+
+    return 0;
+}
+
+void uart_write(const char *buf, unsigned int len)
+{
+    while (len--) {
+        /* Wait for TX empty */
+        while ((UART_ISR(UART_BASE) & UART_ISR_TX_EMPTY) == 0)
+            ;
+        UART_TDR(UART_BASE) = *buf;
+        buf++;
+    }
+}
+#endif /* DEBUG_UART */
+
 void hal_init(void)
 {
     clock_pll_on(0);
+
+#ifdef DEBUG_UART
+    uart_init(115200, 8, 'N', 1);
+    uart_write("wolfBoot Init\n", 14);
+#endif
 }
 
 #ifdef FLASH_SECURABLE_MEMORY_SUPPORT

@@ -1448,10 +1448,12 @@ ifeq ($(DEBUG_UART),1)
   CFLAGS+=-DDEBUG_UART
 
   # If this target has a UART driver, add it to the OBJS
-  # Skip uart_drv for stm32c0 - UART is implemented directly in hal/stm32c0.c
+  # Skip uart_drv for stm32c0 and stm32g0 - UART is implemented directly in hal files
   ifneq (,$(wildcard hal/uart/uart_drv_$(TARGET).c))
     ifneq ($(TARGET),stm32c0)
-      OBJS+=hal/uart/uart_drv_$(TARGET).o
+      ifneq ($(TARGET),stm32g0)
+        OBJS+=hal/uart/uart_drv_$(TARGET).o
+      endif
     endif
   endif
 endif
