@@ -60,6 +60,10 @@ void hal_init(void)
         LIBWOLFBOOT_VERSION_STRING,__DATE__, __TIME__);
 #endif
 #endif
+
+#ifdef EXT_FLASH
+    qspi_init();
+#endif
 }
 
 /* ============================================================================
@@ -290,26 +294,314 @@ int RAMFUNCTION hal_flash_erase(uint32_t address, int len)
 }
 
 #ifdef EXT_FLASH
-/* External flash support
- *
- * Note: These are intentional stubs. PolarFire SoC MPFS250 uses eMMC/SD card
- * for firmware storage and updates, not external SPI/QSPI flash. The EXT_FLASH
- * define may be set in some configurations, but actual storage operations are
- * handled by the SDHCI driver and disk partition layer.
+/* ==========================================================================
+ * QSPI Flash Controller Implementation
+ * ========================================================================== */
+
+/* QSPI Controller Initialization */
+void qspi_init(void)
+{
+    /* Release QSPI from reset */
+    SYSREG_SOFT_RESET_CR &= ~SYSREG_SOFT_RESET_CR_QSPI;
+
+    /* Small delay to ensure reset is released */
+    for (volatile int i = 0; i < 1000; i++);
+
+    /* Configure QSPI Control Register:
+     * - Clock divider: 30 (~5MHz from 150MHz APB, conservative)
+     * - SPI Mode 3: CPOL=1 (clock idle high), CPHA=1 (sample on falling edge)
+     * - Sample on SPICLK
+     * - Start in normal (1-bit) mode
+     * - Enable controller
+     */
+    QSPI_CONTROL =
+        (QSPI_CLK_DIV_30 << QSPI_CTRL_CLKRATE_OFFSET) |  /* Clock divider */
+        QSPI_CTRL_CLKIDLE |                                /* CPOL=1 */
+        QSPI_CTRL_SAMPLE_SCK |                             /* Sample on SCK */
+        QSPI_CTRL_EN;                                      /* Enable */
+
+    /* Wait for controller to be ready */
+    while (!(QSPI_STATUS & QSPI_STATUS_READY));
+
+#ifdef DEBUG_QSPI
+    wolfBoot_printf("QSPI: Controller initialized at ~5MHz\r\n");
+#endif
+}
+
+/* QSPI Block Transfer Function
+ * read_mode: 0=write, 1=read
+ * cmd: Command buffer (includes opcode, address, etc.)
+ * cmd_len: Length of command phase
+ * data: Data buffer for read/write
+ * data_len: Length of data phase
+ * dummy_cycles: Number of dummy bytes to insert between cmd and data
  */
+int qspi_transfer_block(uint8_t read_mode, const uint8_t *cmd, uint32_t cmd_len,
+                        uint8_t *data, uint32_t data_len, uint8_t dummy_cycles)
+{
+    uint32_t total_bytes = cmd_len + dummy_cycles + data_len;
+    uint32_t cmd_bytes = cmd_len + dummy_cycles;
+    uint32_t i;
+
+    /* Validate parameters */
+    if (total_bytes > 65535) {
+        return -1;  /* Frame too large */
+    }
+
+    /* Configure frame format:
+     * - Total bytes = command + dummy + data
+     * - Command bytes = command + dummy (everything before data phase)
+     * - Normal SPI mode (not quad) for now
+     */
+    QSPI_FRAMES =
+        ((total_bytes & 0xFFFF) << QSPI_FRAMES_TOTALBYTES_OFFSET) |
+        ((cmd_bytes & 0x1FF) << QSPI_FRAMES_CMDBYTES_OFFSET);
+
+    /* Send command bytes */
+    for (i = 0; i < cmd_len; i++) {
+        /* Wait for TX FIFO space */
+        while (QSPI_STATUS & QSPI_STATUS_TXFULL);
+        QSPI_TX_DATA = cmd[i];
+    }
+
+    /* Send dummy bytes (0x00) */
+    for (i = 0; i < dummy_cycles; i++) {
+        while (QSPI_STATUS & QSPI_STATUS_TXFULL);
+        QSPI_TX_DATA = 0x00;
+    }
+
+    if (read_mode) {
+        /* Read mode: receive data */
+        for (i = 0; i < data_len; i++) {
+            /* Wait for RX data available */
+            while (!(QSPI_STATUS & QSPI_STATUS_RXAVAIL));
+            data[i] = QSPI_RX_DATA;
+        }
+        /* Wait for RX done */
+        while (!(QSPI_STATUS & QSPI_STATUS_RXDONE));
+    } else {
+        /* Write mode: send data */
+        if (data && data_len > 0) {
+            for (i = 0; i < data_len; i++) {
+                /* Wait for TX FIFO space */
+                while (QSPI_STATUS & QSPI_STATUS_TXFULL);
+                QSPI_TX_DATA = data[i];
+            }
+        }
+        /* Wait for TX done */
+        while (!(QSPI_STATUS & QSPI_STATUS_TXDONE));
+    }
+
+    return 0;
+}
+
+/* Read JEDEC ID from flash */
+int qspi_read_id(uint8_t *id_buf)
+{
+    uint8_t cmd = QSPI_CMD_READ_ID_OPCODE;
+    return qspi_transfer_block(QSPI_MODE_READ, &cmd, 1, id_buf, 3, 0);
+}
+
+/* Send Write Enable command */
+int qspi_write_enable(void)
+{
+    uint8_t cmd = QSPI_CMD_WRITE_ENABLE_OPCODE;
+    return qspi_transfer_block(QSPI_MODE_WRITE, &cmd, 1, NULL, 0, 0);
+}
+
+/* Wait for flash to be ready (poll status register) */
+int qspi_wait_ready(uint32_t timeout_ms)
+{
+    uint8_t cmd = QSPI_CMD_READ_STATUS_OPCODE;
+    uint8_t status;
+    uint32_t count = 0;
+    uint32_t max_count = timeout_ms * 1000;  /* Rough timing */
+
+    do {
+        qspi_transfer_block(QSPI_MODE_READ, &cmd, 1, &status, 1, 0);
+        if (!(status & 0x01)) {  /* Bit 0 = WIP (Write In Progress) */
+            return 0;  /* Ready */
+        }
+        count++;
+    } while (count < max_count);
+
+    return -1;  /* Timeout */
+}
+
+/* Enter 4-byte addressing mode (required for >32MB flash) */
+int qspi_enter_4byte_mode(void)
+{
+    uint8_t cmd = QSPI_CMD_ENTER_4BYTE_MODE;
+    return qspi_transfer_block(QSPI_MODE_WRITE, &cmd, 1, NULL, 0, 0);
+}
+
+/* Read from QSPI flash (4-byte addressing) */
+static int qspi_flash_read(uint32_t address, uint8_t *data, uint32_t len)
+{
+    uint8_t cmd[5];
+
+    /* Build 4-byte read command */
+    cmd[0] = QSPI_CMD_4BYTE_READ_OPCODE;
+    cmd[1] = (address >> 24) & 0xFF;
+    cmd[2] = (address >> 16) & 0xFF;
+    cmd[3] = (address >> 8) & 0xFF;
+    cmd[4] = address & 0xFF;
+
+    return qspi_transfer_block(QSPI_MODE_READ, cmd, 5, data, len, 0);
+}
+
+/* Write to QSPI flash - single page (max 256 bytes) */
+static int qspi_flash_write_page(uint32_t address, const uint8_t *data, uint32_t len)
+{
+    uint8_t cmd[5];
+    int ret;
+
+    /* Ensure page alignment and length */
+    if (len > FLASH_PAGE_SIZE) {
+        len = FLASH_PAGE_SIZE;
+    }
+
+    /* Enable write */
+    ret = qspi_write_enable();
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Build 4-byte page program command */
+    cmd[0] = QSPI_CMD_4BYTE_PAGE_PROG_OPCODE;
+    cmd[1] = (address >> 24) & 0xFF;
+    cmd[2] = (address >> 16) & 0xFF;
+    cmd[3] = (address >> 8) & 0xFF;
+    cmd[4] = address & 0xFF;
+
+    /* Send command + data */
+    ret = qspi_transfer_block(QSPI_MODE_WRITE, cmd, 5, (uint8_t *)data, len, 0);
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Wait for write to complete */
+    return qspi_wait_ready(1000);  /* 1 second timeout */
+}
+
+/* Erase 64KB sector */
+static int qspi_flash_sector_erase(uint32_t address)
+{
+    uint8_t cmd[5];
+    int ret;
+
+    /* Enable write */
+    ret = qspi_write_enable();
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Build 4-byte sector erase command */
+    cmd[0] = QSPI_CMD_4BYTE_SECTOR_ERASE;
+    cmd[1] = (address >> 24) & 0xFF;
+    cmd[2] = (address >> 16) & 0xFF;
+    cmd[3] = (address >> 8) & 0xFF;
+    cmd[4] = address & 0xFF;
+
+    ret = qspi_transfer_block(QSPI_MODE_WRITE, cmd, 5, NULL, 0, 0);
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Wait for erase to complete (64KB erase can take several seconds) */
+    return qspi_wait_ready(10000);  /* 10 second timeout */
+}
+
+/* ==========================================================================
+ * External Flash API Implementation
+ * ========================================================================== */
 void ext_flash_lock(void)
 {
-    /* Stub: not used - eMMC/SD controller handles access control */
+    /* Optional: Could implement write protection here */
 }
 
 void ext_flash_unlock(void)
 {
-    /* Stub: not used - eMMC/SD controller handles access control */
 }
 
 int ext_flash_write(uintptr_t address, const uint8_t *data, int len)
 {
-    /* Stub: not used - updates written via SDHCI/GPT partitions */
+    uint32_t page_offset;
+    uint32_t chunk_len;
+    int ret;
+
+    /* Write data page by page */
+    while (len > 0) {
+        /* Calculate bytes to write in this page */
+        page_offset = address & (FLASH_PAGE_SIZE - 1);
+        chunk_len = FLASH_PAGE_SIZE - page_offset;
+        if (chunk_len > (uint32_t)len) {
+            chunk_len = len;
+        }
+
+        /* Write page */
+        ret = qspi_flash_write_page(address, data, chunk_len);
+        if (ret != 0) {
+            return ret;
+        }
+
+        /* Update pointers */
+        address += chunk_len;
+        data += chunk_len;
+        len -= chunk_len;
+    }
+
+    return 0;
+}
+
+int ext_flash_read(uintptr_t address, uint8_t *data, int len)
+{
+    return qspi_flash_read(address, data, len);
+}
+
+int ext_flash_erase(uintptr_t address, int len)
+{
+    uint32_t sector_addr;
+    uint32_t end_addr;
+    int ret;
+
+    /* Align to sector boundaries */
+    sector_addr = address & ~(FLASH_SECTOR_SIZE - 1);
+    end_addr = address + len;
+
+    /* Erase sectors */
+    while (sector_addr < end_addr) {
+#if defined(DEBUG) && defined(PRINTF_ENABLED)
+        wolfBoot_printf("QSPI: Erasing sector at 0x%08X\r\n", sector_addr);
+#endif
+
+        ret = qspi_flash_sector_erase(sector_addr);
+        if (ret != 0) {
+#if defined(DEBUG) && defined(PRINTF_ENABLED)
+            wolfBoot_printf("QSPI: Erase failed\r\n");
+#endif
+            return ret;
+        }
+
+        sector_addr += FLASH_SECTOR_SIZE;
+    }
+
+    return 0;
+}
+
+#else /* !EXT_FLASH */
+
+/* Stubs for when QSPI is disabled */
+void ext_flash_lock(void)
+{
+}
+
+void ext_flash_unlock(void)
+{
+}
+
+int ext_flash_write(uintptr_t address, const uint8_t *data, int len)
+{
     (void)address;
     (void)data;
     (void)len;
@@ -318,7 +610,6 @@ int ext_flash_write(uintptr_t address, const uint8_t *data, int len)
 
 int ext_flash_read(uintptr_t address, uint8_t *data, int len)
 {
-    /* Stub: not used - firmware loaded via SDHCI/GPT partitions */
     (void)address;
     (void)data;
     (void)len;
@@ -327,11 +618,11 @@ int ext_flash_read(uintptr_t address, uint8_t *data, int len)
 
 int ext_flash_erase(uintptr_t address, int len)
 {
-    /* Stub: not used - eMMC/SD uses block-level operations */
     (void)address;
     (void)len;
     return 0;
 }
+
 #endif /* EXT_FLASH */
 
 #if defined(MMU) && !defined(WOLFBOOT_NO_PARTITIONS)

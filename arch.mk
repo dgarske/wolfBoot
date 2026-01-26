@@ -574,11 +574,16 @@ endif
 ## RISCV64 (64-bit)
 ifeq ($(ARCH),RISCV64)
   CROSS_COMPILE?=riscv64-unknown-elf-
-  CFLAGS+=-DMMU -DWOLFBOOT_DUALBOOT
-  CFLAGS+=-DWOLFBOOT_UPDATE_DISK -DMAX_DISKS=1
-  UPDATE_OBJS:=src/update_disk.o
-  OBJS += src/gpt.o
-  OBJS += src/disk.o
+
+  # If SD card or eMMC is enabled use update_disk loader with GPT support
+  ifneq ($(filter 1,$(DISK_SDCARD) $(DISK_EMMC)),)
+    CFLAGS+=-DMMU -DWOLFBOOT_DUALBOOT
+    CFLAGS+=-DWOLFBOOT_UPDATE_DISK -DMAX_DISKS=1
+    UPDATE_OBJS:=src/update_disk.o
+    OBJS += src/gpt.o
+    OBJS += src/disk.o
+  endif
+
   ARCH_FLAGS=-march=rv64imafd -mabi=lp64d -mcmodel=medany
   CFLAGS+=-fno-builtin-printf -DUSE_M_TIME -g -nostartfiles -DARCH_RISCV -DARCH_RISCV64
   CFLAGS+=$(ARCH_FLAGS)
