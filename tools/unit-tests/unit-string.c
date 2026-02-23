@@ -23,8 +23,6 @@
  */
 
 #define FAST_MEMCPY
-#define DEBUG_UART
-#define PRINTF_ENABLED
 
 #include <check.h>
 #include <stdint.h>
@@ -86,7 +84,9 @@ START_TEST(test_case_insensitive_alpha_only)
     ck_assert_int_ne(strcasecmp("@", "`"), 0);
     ck_assert_int_ne(strcasecmp("[", "{"), 0);
     ck_assert_int_ne(strcasecmp("]", "}"), 0);
+    ck_assert_int_ne(strcasecmp("!", "A"), 0);
     ck_assert_int_ne(strncasecmp("@", "`", 1), 0);
+    ck_assert_int_ne(strncasecmp("!", "A", 1), 0);
     ck_assert_int_ne(strcasecmp("a@", "A`"), 0);
     ck_assert_int_ne(strncasecmp("a@", "A`", 2), 0);
 }
@@ -171,11 +171,11 @@ START_TEST(test_strcpy_strncpy_strcat_strncat)
 
     strcpy(dest, "a");
     strncat(dest, "bc", 3);
-    ck_assert_str_eq(dest, "ab");
+    ck_assert_str_eq(dest, "abc");
 
     strcpy(dest, "a");
     strncat(dest, "bc", 1);
-    ck_assert_str_eq(dest, "a");
+    ck_assert_str_eq(dest, "ab");
 
     strcpy(dest, "");
     strncat(dest, "x", 2);
@@ -289,7 +289,7 @@ START_TEST(test_uart_printf_formats)
     ck_assert_str_eq(uart_buf, "0012");
 
     reset_uart_buf();
-    uart_printf("%p", (void*)0x10);
+    uart_printf("%p", (void*)(uintptr_t)0x10);
     ck_assert_str_eq(uart_buf, "0x10");
 
     reset_uart_buf();
