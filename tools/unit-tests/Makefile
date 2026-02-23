@@ -25,10 +25,10 @@ LDFLAGS+=-ftest-coverage
 
 
 
-TESTS:=unit-parser unit-extflash unit-aes128 unit-aes256 unit-chacha20 unit-pci \
-       unit-mock-state unit-sectorflags unit-image unit-nvm unit-nvm-flagshome \
-       unit-enc-nvm unit-enc-nvm-flagshome unit-delta unit-update-flash \
-       unit-update-ram unit-pkcs11_store
+TESTS:=unit-parser unit-extflash unit-spi-flash unit-aes128 unit-aes256 \
+       unit-chacha20 unit-pci unit-mock-state unit-sectorflags unit-image \
+       unit-nvm unit-nvm-flagshome unit-enc-nvm unit-enc-nvm-flagshome \
+       unit-delta unit-update-flash unit-update-ram unit-pkcs11_store
 
 all: $(TESTS)
 
@@ -89,6 +89,9 @@ unit-parser: ../../include/target.h unit-parser.c
 	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
 unit-extflash: ../../include/target.h unit-extflash.c
+	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
+
+unit-spi-flash: ../../include/target.h unit-spi-flash.c
 	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
 unit-aes128: ../../include/target.h unit-extflash.c
