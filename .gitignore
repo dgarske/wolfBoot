@@ -121,7 +121,6 @@ tools/check_config/check_config
 tools/test-expect-version/test-expect-version
 tools/test-update-server/server
 tools/uart-flash-server/ufserver
-tools/unit-tests/unit-parser
 tools/bin-assemble/bin-assemble
 tools/elf-parser/elf-parser
 tools/fdt-parser/fdt-parser
@@ -134,6 +133,29 @@ tools/tpm/policy_sign
 config/*.ld
 test-lib
 lib-fs
+
+#unit tests
+
+tools/unit-tests/unit-aes128
+tools/unit-tests/unit-aes256
+tools/unit-tests/unit-chacha20
+tools/unit-tests/unit-delta
+tools/unit-tests/unit-enc-nvm
+tools/unit-tests/unit-enc-nvm-flagshome
+tools/unit-tests/unit-extflash
+tools/unit-tests/unit-image
+tools/unit-tests/unit-libwolfboot-extra
+tools/unit-tests/unit-mock-state
+tools/unit-tests/unit-nvm
+tools/unit-tests/unit-nvm-flagshome
+tools/unit-tests/unit-parser
+tools/unit-tests/unit-pci
+tools/unit-tests/unit-pkcs11_store
+tools/unit-tests/unit-sectorflags
+tools/unit-tests/unit-spi-flash
+tools/unit-tests/unit-update-flash
+tools/unit-tests/unit-update-ram
+
 
 # Elf preprocessing tools
 tools/squashelf/**

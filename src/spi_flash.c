@@ -131,7 +131,7 @@ static int RAMFUNCTION spi_flash_write_page(uint32_t address, const void *data, 
             address++;
             spi_read();
             len--;
-        } while ((address & (SPI_FLASH_PAGE_SIZE - 1)) != 0);
+        } while (len > 0 && (address & (SPI_FLASH_PAGE_SIZE - 1)) != 0);
         spi_cs_off(SPI_CS_PIO_BASE, SPI_CS_FLASH);
     }
     wait_busy();
