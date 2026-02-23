@@ -498,7 +498,9 @@ int main(int argc, char *argv[])
         if (ret == 0) {
             char outfilename[PATH_MAX];
             strncpy(outfilename, filename, sizeof(outfilename)-1);
-            strncat(outfilename, ".out",   sizeof(outfilename)-1);
+            outfilename[sizeof(outfilename) - 1] = '\0';
+            strncat(outfilename, ".out",
+                sizeof(outfilename) - strlen(outfilename) - 1);
 
             /* save updated binary file */
             write_bin(outfilename, image, imageSz + UNIT_TEST_GROW_SIZE);
