@@ -226,7 +226,7 @@ START_TEST(test_memcpy_memmove)
 }
 END_TEST
 
-START_TEST(test_memcpy_fastpath_aligned)
+START_TEST(test_memcpy_aligned_buffers)
 {
     union {
         unsigned long align;
@@ -335,6 +335,7 @@ Suite *string_suite(void)
     tcase_add_test(tcase_misc, test_strcpy_strncpy_strcat_strncat);
     tcase_add_test(tcase_misc, test_strncmp);
     tcase_add_test(tcase_misc, test_memcpy_memmove);
+    tcase_add_test(tcase_misc, test_memcpy_aligned_buffers);
     tcase_add_test(tcase_misc, test_uart_writenum_basic);
     tcase_add_test(tcase_misc, test_uart_printf_formats);
 
