@@ -117,6 +117,11 @@ int strcmp(const char *s1, const char *s2)
 }
 #endif /* Renesas CCRX */
 
+static int is_alpha(int c)
+{
+    return ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
+}
+
 int strcasecmp(const char *s1, const char *s2)
 {
     int diff = 0;
@@ -124,7 +129,8 @@ int strcasecmp(const char *s1, const char *s2)
     while (!diff && *s1) {
         diff = (int)*s1 - (int)*s2;
 
-        if ((diff == 'A' - 'a') || (diff == 'a' - 'A'))
+        if (((diff == 'A' - 'a') || (diff == 'a' - 'A')) &&
+                (is_alpha((unsigned char)*s1) || is_alpha((unsigned char)*s2)))
             diff = 0;
 
         s1++;
@@ -142,12 +148,13 @@ int strncasecmp(const char *s1, const char *s2, size_t n)
     while (!diff && *s1) {
         diff = (int)*s1 - (int)*s2;
 
-        if ((diff == 'A' - 'a') || (diff == 'a' - 'A'))
+        if (((diff == 'A' - 'a') || (diff == 'a' - 'A')) &&
+                (is_alpha((unsigned char)*s1) || is_alpha((unsigned char)*s2)))
             diff = 0;
 
         s1++;
         s2++;
-        if (++i > n)
+        if (++i >= n)
             break;
     }
     return diff;
