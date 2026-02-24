@@ -107,7 +107,7 @@ START_TEST(test_wb_patch_resume_large_len)
 
     patch_ctx.matching = 1;
     patch_ctx.blk_off = 0;
-    patch_ctx.blk_sz = 70000;
+    patch_ctx.blk_sz = len;
 
     ret = wb_patch(&patch_ctx, dst, len);
     ck_assert_int_eq(ret, -1);
