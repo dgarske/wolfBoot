@@ -48,6 +48,71 @@ START_TEST(test_wb_patch_init_invalid)
 }
 END_TEST
 
+START_TEST(test_wb_patch_src_bounds_invalid)
+{
+    WB_PATCH_CTX patch_ctx;
+    uint8_t src[SRC_SIZE] = {0};
+    uint8_t patch[PATCH_SIZE] = {0};
+    uint8_t dst[DELTA_BLOCK_SIZE] = {0};
+    int ret;
+
+    /* ESC + header with src_off beyond src_size */
+    patch[0] = ESC;
+    patch[1] = 0x00; /* off[0] */
+    patch[2] = 0x10; /* off[1] -> 0x0010FF */
+    patch[3] = 0xFF; /* off[2] */
+    patch[4] = 0x00; /* sz[0] */
+    patch[5] = 0x10; /* sz[1] -> 16 */
+
+    ret = wb_patch_init(&patch_ctx, src, SRC_SIZE, patch, BLOCK_HDR_SIZE);
+    ck_assert_int_eq(ret, 0);
+
+    ret = wb_patch(&patch_ctx, dst, sizeof(dst));
+    ck_assert_int_eq(ret, -1);
+}
+END_TEST
+
+START_TEST(test_wb_patch_resume_bounds_invalid)
+{
+    WB_PATCH_CTX patch_ctx;
+    uint8_t src[SRC_SIZE] = {0};
+    uint8_t patch[PATCH_SIZE] = {0};
+    uint8_t dst[DELTA_BLOCK_SIZE] = {0};
+    int ret;
+
+    ret = wb_patch_init(&patch_ctx, src, SRC_SIZE, patch, BLOCK_HDR_SIZE);
+    ck_assert_int_eq(ret, 0);
+
+    patch_ctx.matching = 1;
+    patch_ctx.blk_off = SRC_SIZE + 1;
+    patch_ctx.blk_sz = 4;
+
+    ret = wb_patch(&patch_ctx, dst, sizeof(dst));
+    ck_assert_int_eq(ret, -1);
+}
+END_TEST
+
+START_TEST(test_wb_patch_resume_large_len)
+{
+    WB_PATCH_CTX patch_ctx;
+    uint8_t src[SRC_SIZE] = {0};
+    uint8_t patch[PATCH_SIZE] = {0};
+    uint8_t dst[DST_SIZE] = {0};
+    uint32_t len = 70000;
+    int ret;
+
+    src[0] = 0xA5;
+    ret = wb_patch_init(&patch_ctx, src, SRC_SIZE, patch, BLOCK_HDR_SIZE);
+    ck_assert_int_eq(ret, 0);
+
+    patch_ctx.matching = 1;
+    patch_ctx.blk_off = 0;
+    patch_ctx.blk_sz = len;
+
+    ret = wb_patch(&patch_ctx, dst, len);
+    ck_assert_int_eq(ret, -1);
+}
+END_TEST
 
 START_TEST(test_wb_diff_init_invalid)
 {
@@ -162,6 +227,9 @@ Suite *patch_diff_suite(void)
 
     tcase_add_test(tc_wolfboot_delta, test_wb_patch_init_invalid);
     tcase_add_test(tc_wolfboot_delta, test_wb_diff_init_invalid);
+    tcase_add_test(tc_wolfboot_delta, test_wb_patch_src_bounds_invalid);
+    tcase_add_test(tc_wolfboot_delta, test_wb_patch_resume_bounds_invalid);
+    tcase_add_test(tc_wolfboot_delta, test_wb_patch_resume_large_len);
     tcase_add_test(tc_wolfboot_delta, test_wb_patch_and_diff);
     suite_add_tcase(s, tc_wolfboot_delta);
 
