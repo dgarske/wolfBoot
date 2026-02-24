@@ -774,14 +774,22 @@ static int RAMFUNCTION wolfBoot_update(int fallback_allowed)
                 return -1;
             }
         } else {
-            /*
-             * When we recover an already-encrypted fallback image, the
-             * manifest still contains hashes computed with the original IV
-             * stream.  Skip the redundant integrity/authenticity checks here
-             * and let the bootloader verify the restored image after the swap.
-             */
-            update.sha_ok = 1;
-            update.signature_ok = 1;
+#ifdef EXT_ENCRYPTED
+            int prev = wolfBoot_force_fallback_iv(1);
+#endif
+            if (!update.hdr_ok
+                    || (wolfBoot_verify_integrity(&update) < 0)
+                    || (wolfBoot_verify_authenticity(&update) < 0)) {
+#ifdef EXT_ENCRYPTED
+                wolfBoot_force_fallback_iv(prev);
+#endif
+                wolfBoot_printf("Update verify failed: Hdr %d, Hash %d, Sig %d\n",
+                    update.hdr_ok, update.sha_ok, update.signature_ok);
+                return -1;
+            }
+#ifdef EXT_ENCRYPTED
+            wolfBoot_force_fallback_iv(prev);
+#endif
         }
         PART_SANITY_CHECK(&update);
 

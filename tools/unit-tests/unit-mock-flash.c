@@ -163,6 +163,18 @@ int ext_flash_write(uintptr_t address, const uint8_t *data, int len)
     int i;
     uint8_t *a = (uint8_t *)address;
     ck_assert_msg(!ext_locked, "Attempting to write to a locked FLASH");
+    ck_assert_msg(
+        ((address >= WOLFBOOT_PARTITION_BOOT_ADDRESS) &&
+         (address + (uintptr_t)len <=
+          WOLFBOOT_PARTITION_BOOT_ADDRESS + WOLFBOOT_PARTITION_SIZE)) ||
+        ((address >= WOLFBOOT_PARTITION_UPDATE_ADDRESS) &&
+         (address + (uintptr_t)len <=
+          WOLFBOOT_PARTITION_UPDATE_ADDRESS + WOLFBOOT_PARTITION_SIZE)) ||
+        ((address >= WOLFBOOT_PARTITION_SWAP_ADDRESS) &&
+         (address + (uintptr_t)len <=
+          WOLFBOOT_PARTITION_SWAP_ADDRESS + WOLFBOOT_SECTOR_SIZE)),
+        "ext_flash_write address out of range: %p len %d",
+        (void*)address, len);
     for (i = 0; i < len; i++) {
         a[i] = data[i];
     }
@@ -188,6 +200,11 @@ void ext_flash_lock(void)
 {
     ck_assert_msg(!ext_locked, "Double ext lock detected\n");
     ext_locked++;
+}
+
+void ext_flash_reset_lock(void)
+{
+    ext_locked = 1;
 }
 
 
