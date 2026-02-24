@@ -106,6 +106,7 @@ int wb_patch(WB_PATCH_CTX *ctx, uint8_t *dst, uint32_t len)
     uint32_t src_off;
     uint16_t sz;
     uint32_t copy_sz;
+    uint32_t resume_sz;
     if (!ctx)
         return -1;
     if (len < BLOCK_HDR_SIZE)
@@ -115,13 +116,13 @@ int wb_patch(WB_PATCH_CTX *ctx, uint8_t *dst, uint32_t len)
         uint8_t *pp = patch_read_cache(ctx);
         if (ctx->matching) {
             /* Resume matching block from previous sector */
-            sz = ctx->blk_sz;
-            if (sz > len)
-                sz = len;
+            resume_sz = ctx->blk_sz;
+            if (resume_sz > len)
+                resume_sz = len;
             if (ctx->blk_off > ctx->src_size ||
-                    sz > ctx->src_size - ctx->blk_off)
+                    resume_sz > ctx->src_size - ctx->blk_off)
                 return -1;
-            memcpy(dst + dst_off, ctx->src_base + ctx->blk_off, sz);
+            memcpy(dst + dst_off, ctx->src_base + ctx->blk_off, resume_sz);
             if (ctx->blk_sz > len) {
                 ctx->blk_sz -= len;
                 ctx->blk_off += len;
@@ -130,7 +131,7 @@ int wb_patch(WB_PATCH_CTX *ctx, uint8_t *dst, uint32_t len)
                 ctx->blk_sz = 0;
                 ctx->matching = 0;
             }
-            dst_off += sz;
+            dst_off += resume_sz;
             continue;
         }
         if (*pp == ESC) {
@@ -145,6 +146,9 @@ int wb_patch(WB_PATCH_CTX *ctx, uint8_t *dst, uint32_t len)
                 src_off = (hdr->off[0] << 16) + (hdr->off[1] << 8) +
                     hdr->off[2];
                 sz = (hdr->sz[0] << 8) + hdr->sz[1];
+                if (src_off > ctx->src_size ||
+                        sz > ctx->src_size - src_off)
+                    return -1;
                 ctx->matching = 1;
                 if (sz > (len - dst_off)) {
                     copy_sz = len - dst_off;
@@ -153,9 +157,6 @@ int wb_patch(WB_PATCH_CTX *ctx, uint8_t *dst, uint32_t len)
                 } else {
                     copy_sz = sz;
                 }
-                if (src_off > ctx->src_size ||
-                        copy_sz > ctx->src_size - src_off)
-                    return -1;
                 memcpy(dst + dst_off, ctx->src_base + src_off, copy_sz);
                 if (sz == copy_sz) {
                     /* End of the block, reset counters and matching state */
