@@ -1637,6 +1637,13 @@ ifeq ($(DEBUG_UART),1)
   endif
 endif
 
+# UART QSPI programmer (PolarFire SoC MPFS): receive binary over UART and
+# write it directly to QSPI flash. Requires EXT_FLASH=1 and DEBUG_UART=1.
+# Use tools/scripts/mpfs_qspi_prog.py on the host side.
+ifeq ($(UART_QSPI_PROGRAM),1)
+  CFLAGS+=-DUART_QSPI_PROGRAM
+endif
+
 ifeq ($(NXP_CUSTOM_DCD),1)
   CFLAGS+=-DNXP_CUSTOM_DCD
   OBJS+=$(NXP_CUSTOM_DCD_OBJS)

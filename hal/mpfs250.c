@@ -246,6 +246,9 @@ void secondary_hart_entry(unsigned long hartid, HLS_DATA* hls)
 #if defined(EXT_FLASH) && defined(TEST_EXT_FLASH) && defined(__WOLFBOOT)
 static int test_ext_flash(void);
 #endif
+#if defined(EXT_FLASH) && defined(UART_QSPI_PROGRAM) && defined(__WOLFBOOT)
+static void qspi_uart_program(void);
+#endif
 
 void hal_init(void)
 {
@@ -279,12 +282,14 @@ void hal_init(void)
 #ifdef EXT_FLASH
     if (qspi_init() != 0) {
         wolfBoot_printf("QSPI: Init failed\n");
-    }
+    } else {
 #if defined(TEST_EXT_FLASH) && defined(__WOLFBOOT)
-    else {
         test_ext_flash();
-    }
 #endif
+#if defined(UART_QSPI_PROGRAM) && defined(__WOLFBOOT)
+        qspi_uart_program();
+#endif
+    }
 #endif /* EXT_FLASH */
 }
 
@@ -997,6 +1002,130 @@ int ext_flash_erase(uintptr_t address, int len)
 
     return total;
 }
+
+/* ============================================================================
+ * UART QSPI Programmer
+ *
+ * Allows programming the QSPI flash over the debug UART without a JTAG/Libero
+ * tool. Enabled at build time with UART_QSPI_PROGRAM=1 in the .config.
+ *
+ * Protocol (after wolfBoot prints the "QSPI-PROG" prompt):
+ *   1. Host sends 'P' within the timeout window to enter programming mode
+ *   2. wolfBoot sends "READY\r\n"
+ *   3. Host sends [4-byte LE QSPI address][4-byte LE data length]
+ *   4. wolfBoot erases required sectors, sends "ERASED\r\n"
+ *   5. For each 256-byte chunk:
+ *        wolfBoot sends ACK byte (0x06) -> host sends chunk -> wolfBoot writes
+ *   6. wolfBoot sends "DONE\r\n" and continues normal boot
+ *
+ * Host side: tools/scripts/mpfs_qspi_prog.py
+ * ============================================================================ */
+#if defined(UART_QSPI_PROGRAM) && defined(__WOLFBOOT)
+
+#define QSPI_PROG_CHUNK     256
+#define QSPI_PROG_ACK       0x06
+
+static uint8_t uart_qspi_rx(void)
+{
+    while (!(MMUART_LSR(DEBUG_UART_BASE) & MSS_UART_DR))
+        ;
+    return MMUART_RBR(DEBUG_UART_BASE);
+}
+
+static void uart_qspi_tx(uint8_t c)
+{
+    while (!(MMUART_LSR(DEBUG_UART_BASE) & MSS_UART_THRE))
+        ;
+    MMUART_THR(DEBUG_UART_BASE) = c;
+}
+
+static void uart_qspi_puts(const char *s)
+{
+    while (*s)
+        uart_qspi_tx((uint8_t)*s++);
+}
+
+static void qspi_uart_program(void)
+{
+    uint8_t ch = 0;
+    uint32_t addr, size, n_sectors, written, t;
+    uint8_t chunk[QSPI_PROG_CHUNK];
+
+    wolfBoot_printf("QSPI-PROG: Press 'P' within 3s to program flash\r\n");
+
+    /* Drain any stale RX bytes before opening the window */
+    while (MMUART_LSR(DEBUG_UART_BASE) & MSS_UART_DR)
+        (void)MMUART_RBR(DEBUG_UART_BASE);
+
+    /* Wait up to 3s: 3000 iterations of 1ms each */
+    for (t = 0; t < 3000U; t++) {
+        udelay(1000);
+        if (MMUART_LSR(DEBUG_UART_BASE) & MSS_UART_DR) {
+            ch = MMUART_RBR(DEBUG_UART_BASE);
+            break;
+        }
+    }
+
+    if (ch != 'P' && ch != 'p') {
+        wolfBoot_printf("QSPI-PROG: No trigger (got 0x%02x LSR=0x%02x), booting\r\n",
+                        (unsigned)ch,
+                        (unsigned)MMUART_LSR(DEBUG_UART_BASE));
+        return;
+    }
+
+    wolfBoot_printf("QSPI-PROG: Entering programmer mode\r\n");
+    uart_qspi_puts("READY\r\n");
+
+    /* Receive destination address then data length (4 bytes LE each) */
+    addr = 0;
+    for (int i = 0; i < 4; i++)
+        addr |= ((uint32_t)uart_qspi_rx() << (i * 8));
+    size = 0;
+    for (int i = 0; i < 4; i++)
+        size |= ((uint32_t)uart_qspi_rx() << (i * 8));
+
+    wolfBoot_printf("QSPI-PROG: addr=0x%x size=%u bytes\r\n", addr, size);
+
+    if (size == 0 || size > 0x200000U) {
+        wolfBoot_printf("QSPI-PROG: Invalid size, aborting\r\n");
+        return;
+    }
+
+    /* Erase all required sectors (FLASH_SECTOR_SIZE = 64 KB) */
+    n_sectors = (size + FLASH_SECTOR_SIZE - 1) / FLASH_SECTOR_SIZE;
+    wolfBoot_printf("QSPI-PROG: Erasing %u sector(s) at 0x%x...\r\n",
+                    n_sectors, addr);
+    ext_flash_unlock();
+    for (uint32_t s = 0; s < n_sectors; s++)
+        ext_flash_erase(addr + s * FLASH_SECTOR_SIZE, FLASH_SECTOR_SIZE);
+
+    /* "ERASED\r\n" must be the last bytes before the first ACK (0x06).
+     * Do not insert any wolfBoot_printf between here and the transfer loop. */
+    uart_qspi_puts("ERASED\r\n");
+
+    /* Chunk transfer: wolfBoot requests each 256-byte block with ACK 0x06 */
+    written = 0;
+    while (written < size) {
+        uint32_t chunk_len = size - written;
+        if (chunk_len > QSPI_PROG_CHUNK)
+            chunk_len = QSPI_PROG_CHUNK;
+
+        uart_qspi_tx(QSPI_PROG_ACK);          /* request next chunk */
+
+        for (uint32_t i = 0; i < chunk_len; i++)
+            chunk[i] = uart_qspi_rx();
+
+        ext_flash_write(addr + written, chunk, (int)chunk_len);
+        written += chunk_len;
+    }
+    ext_flash_lock();
+
+    wolfBoot_printf("QSPI-PROG: Wrote %u bytes to 0x%x\r\n", written, addr);
+    uart_qspi_puts("DONE\r\n");
+    wolfBoot_printf("QSPI-PROG: Done, continuing boot\r\n");
+}
+
+#endif /* UART_QSPI_PROGRAM */
 
 /* Test for external QSPI flash erase/write/read */
 #ifdef TEST_EXT_FLASH

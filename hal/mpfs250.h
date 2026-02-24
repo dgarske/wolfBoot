@@ -151,6 +151,7 @@ static const unsigned long MSS_UART_BASE_ADDR[] = {
 #define MSS_UART_ONE_STOP_BIT       ((uint8_t)0x00)
 
 /* LSR (Line Status Register) */
+#define MSS_UART_DR                 ((uint8_t)0x01)    /* Data ready (receive buffer full) */
 #define MSS_UART_THRE               ((uint8_t)0x20)    /* Transmitter holding register empty */
 #define MSS_UART_TEMT               ((uint8_t)0x40)    /* Transmit empty */
 

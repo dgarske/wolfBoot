@@ -904,6 +904,70 @@ Notes:
 - The MSS QSPI path expects external flash on the MSS QSPI pins; the SC QSPI path is for
   fabric-connected flash (design flash) accessed via the System Controller's QSPI instance.
 
+### PolarFire SoC M-Mode (bare-metal eNVM boot)
+
+In M-Mode wolfBoot runs directly on the E51 monitor core from eNVM — no HSS required. The signed
+application is loaded from SC QSPI flash into LIM (on-chip RAM). This is the simplest bring-up path.
+
+**Boot flow:**
+1. CPU starts at eNVM reset vector (`0x20220100`)
+2. Startup code copies wolfBoot to L2 Scratchpad (`0x0A000000`) and jumps there
+3. wolfBoot reads the signed image from QSPI flash into LIM (`0x08000000`)
+4. Signature is verified, then execution jumps to the application
+
+**Build:**
+```sh
+cp config/examples/polarfire_mpfs250_m_qspi.config .config
+make clean && make wolfboot.elf
+```
+
+**Flash wolfBoot to eNVM** (requires SmartDesign / SmartFusion2 Libero SoC install):
+```sh
+java -jar $SC_INSTALL_DIR/extras/mpfs/mpfsBootmodeProgrammer.jar \
+    --bootmode 1 --die MPFS250T --package FCG1152 --workdir $PWD wolfboot.elf
+```
+
+**Build and sign the test application:**
+```sh
+make test-app/image_v1_signed.bin
+```
+
+**Flash the signed application to QSPI** using the UART programmer (requires `EXT_FLASH=1` and
+`UART_QSPI_PROGRAM=1` in `.config`, and `pyserial` installed):
+```sh
+python3 tools/scripts/mpfs_qspi_prog.py /dev/ttyUSB1 \
+    test-app/image_v1_signed.bin 0x20000
+```
+
+The script:
+1. Waits for wolfBoot to print the `QSPI-PROG: Press 'P'` prompt (power-cycle the board)
+2. Sends `P` to enter programming mode
+3. Transfers the binary in 256-byte ACK-driven chunks
+4. wolfBoot erases, writes, and then continues booting the new image
+
+Use `0x20000` for the boot partition and `0x2000000` for the update partition.
+
+**Expected serial output on successful boot:**
+```
+wolfBoot Version: 2.7.0 (...)
+Running on E51 (hart 0) in M-mode
+QSPI: Using SC QSPI Controller (0x37020100)
+QSPI: Flash ID = 0x20 0xBA 0x21
+QSPI-PROG: Press 'P' within 3s to program flash
+QSPI-PROG: No trigger (got 0x00 ...), booting
+Versions: Boot 1, Update 0
+...
+Firmware Valid
+Booting at 0x...
+```
+
+**Notes:**
+- The E51 is `rv64imac`; the `rdtime` CSR instruction is not available in bare-metal M-mode.
+  wolfBoot uses a calibrated busy-loop for all delays (`udelay()` in `hal/mpfs250.c`).
+- `UART_QSPI_PROGRAM=1` adds a 3-second boot pause every time. Set to `0` once the flash
+  contents are stable.
+- The config uses `WOLFBOOT_LOAD_ADDRESS=0x08000200` to keep the image header within LIM.
+
 ### PolarFire testing
 
 This section describes how to build the test-application, create a custom uSD with required partitions and copying signed test-application to uSD partitions.

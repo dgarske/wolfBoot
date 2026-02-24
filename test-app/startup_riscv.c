@@ -42,10 +42,10 @@ void __attribute__((naked,section(".init"))) _reset(void) {
     asm volatile("la gp, _global_pointer");
     asm volatile("la sp, _end_stack");
 
-    /* Set up vectored interrupt, with IV starting at offset 0x100.
-     * Always use stvec: wolfBoot M-mode uses enter_smode() to transition
-     * the payload to S-mode, so stvec is correct in all cases. */
-    asm volatile("csrw stvec, %0":: "r"((uint8_t *)(&_start_vector) + 1));
+    /* Set up M-mode vectored interrupt table.
+     * wolfBoot M-mode does a direct jr (no enter_smode), so payload runs in M-mode.
+     * Use mtvec. The +1 sets MODE=1 (vectored). */
+    asm volatile("csrw mtvec, %0":: "r"((uint8_t *)(&_start_vector) + 1));
 
     src = (uint32_t *) &_stored_data;
     dst = (uint32_t *) &_start_data;
@@ -77,8 +77,8 @@ void do_boot(const uint32_t *app_offset)
 static uint32_t synctrap_cause = 0;
 void __attribute__((naked)) isr_synctrap(void)
 {
-    /* Always use scause: payload always runs in S-mode under wolfBoot */
-    asm volatile("csrr %0, scause" : "=r"(synctrap_cause));
+    /* Use mcause: payload runs in M-mode (wolfBoot does M-mode direct jump) */
+    asm volatile("csrr %0, mcause" : "=r"(synctrap_cause));
 }
 
 void isr_empty(void)

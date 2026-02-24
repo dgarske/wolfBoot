@@ -463,10 +463,19 @@ void do_boot(const uint32_t *app_offset)
      * Use this for test-apps; define WOLFBOOT_MMODE_SMODE_BOOT for Linux.
      */
     wolfBoot_printf("M-mode direct jump to 0x%lx\n", (unsigned long)app_offset);
-    /* Drain UART before jumping */
+    /* Diagnostics before jump */
+    {
+        volatile uint8_t lsr = MMUART_LSR(DEBUG_UART_BASE);
+        uint32_t *p = (uint32_t*)app_offset;
+        wolfBoot_printf("Pre-jump: LSR=0x%x THRE=%d\n",
+                        (unsigned)lsr, (lsr & MSS_UART_THRE) ? 1 : 0);
+        wolfBoot_printf("App[0]=0x%lx [1]=0x%lx\n",
+                        (unsigned long)p[0], (unsigned long)p[1]);
+    }
+    /* Extended drain: allow all diagnostic output to finish (~10ms at 40MHz) */
     {
         volatile int i;
-        for (i = 0; i < 100000; i++) {}
+        for (i = 0; i < 400000; i++) {}
     }
     (void)hartid;
     (void)dts_addr;
