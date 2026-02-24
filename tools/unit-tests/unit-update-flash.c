@@ -324,6 +324,8 @@ static int add_payload_encrypted(uint8_t part, uint32_t version, uint32_t size,
             uint32_t chunk = total - off;
             if (chunk > WOLFBOOT_SECTOR_SIZE)
                 chunk = WOLFBOOT_SECTOR_SIZE;
+            if (use_fallback_iv)
+                wolfBoot_enable_fallback_iv(1);
             ret = ext_flash_encrypt_write(base + off, buf + off, chunk);
             if (ret != 0)
                 break;
