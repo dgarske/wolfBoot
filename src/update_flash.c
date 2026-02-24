@@ -1168,7 +1168,7 @@ int wolfBoot_unlock_disk(void)
             ret, wolfTPM2_GetRCString(ret));
     }
 
-    TPM2_ForceZero(secret, sizeof(secretSz));
+    TPM2_ForceZero(secret, sizeof(secret));
     return ret;
 }
 #endif
