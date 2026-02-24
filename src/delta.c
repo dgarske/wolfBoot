@@ -118,6 +118,9 @@ int wb_patch(WB_PATCH_CTX *ctx, uint8_t *dst, uint32_t len)
             sz = ctx->blk_sz;
             if (sz > len)
                 sz = len;
+            if (ctx->blk_off > ctx->src_size ||
+                    sz > ctx->src_size - ctx->blk_off)
+                return -1;
             memcpy(dst + dst_off, ctx->src_base + ctx->blk_off, sz);
             if (ctx->blk_sz > len) {
                 ctx->blk_sz -= len;
@@ -150,6 +153,9 @@ int wb_patch(WB_PATCH_CTX *ctx, uint8_t *dst, uint32_t len)
                 } else {
                     copy_sz = sz;
                 }
+                if (src_off > ctx->src_size ||
+                        copy_sz > ctx->src_size - src_off)
+                    return -1;
                 memcpy(dst + dst_off, ctx->src_base + src_off, copy_sz);
                 if (sz == copy_sz) {
                     /* End of the block, reset counters and matching state */
