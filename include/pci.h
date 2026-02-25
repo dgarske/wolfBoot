@@ -117,9 +117,7 @@ void pci_config_write16(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off,
 uint8_t pci_config_read8(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off);
 void pci_config_write8(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off,
                        uint8_t value);
-uint64_t pci_get_mmio_addr(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t bar);
 
-uint32_t pci_enum_bus(uint8_t bus, struct pci_enum_info *info);
 
 int pci_enum_do(void);
 int pci_pre_enum(void);

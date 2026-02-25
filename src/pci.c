@@ -337,35 +337,7 @@ uint8_t pci_config_read8(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off)
     return reg;
 }
 
-uint64_t pci_get_mmio_addr(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t bar)
-{
-    uint32_t reg;
-    uint64_t addr = 0;
 
-    if (bar >= PCI_ENUM_MAX_BARS)
-    {
-        return addr;
-    }
-
-    reg = pci_config_read32(bus, dev, fun, PCI_BAR0_OFFSET + (bar * 8));
-    wolfBoot_printf("BAR%d[0x%x] reg value = 0x%x\r\n", bar, PCI_BAR0_OFFSET + (bar * 8), reg);
-
-    if (!pci_enum_is_mmio(reg))
-    {
-        return addr;
-    }
-
-    addr = reg & 0xFFFFFFF0;
-
-    if (pci_enum_is_64bit(reg))
-    {
-        reg = pci_config_read32(bus, dev, fun, (PCI_BAR0_OFFSET + 4) + (bar * 8));
-        wolfBoot_printf("BAR%d_HIGH[0x%x] reg value = 0x%x\r\n", bar, (PCI_BAR0_OFFSET + 4) + (bar * 8), reg);
-        addr |= ((uint64_t)reg << 32);
-    }
-
-    return addr;
-}
 
 static int pci_enum_is_64bit(uint32_t value)
 {
