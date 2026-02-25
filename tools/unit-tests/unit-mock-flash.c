@@ -163,16 +163,17 @@ int ext_flash_write(uintptr_t address, const uint8_t *data, int len)
     int i;
     uint8_t *a = (uint8_t *)address;
     ck_assert_msg(!ext_locked, "Attempting to write to a locked FLASH");
+    ck_assert_msg(len >= 0, "ext_flash_write invalid len %d", len);
     ck_assert_msg(
         ((address >= WOLFBOOT_PARTITION_BOOT_ADDRESS) &&
-         (address + (uintptr_t)len <=
-          WOLFBOOT_PARTITION_BOOT_ADDRESS + WOLFBOOT_PARTITION_SIZE)) ||
+         ((uintptr_t)len <=
+          WOLFBOOT_PARTITION_BOOT_ADDRESS + WOLFBOOT_PARTITION_SIZE - address)) ||
         ((address >= WOLFBOOT_PARTITION_UPDATE_ADDRESS) &&
-         (address + (uintptr_t)len <=
-          WOLFBOOT_PARTITION_UPDATE_ADDRESS + WOLFBOOT_PARTITION_SIZE)) ||
+         ((uintptr_t)len <=
+          WOLFBOOT_PARTITION_UPDATE_ADDRESS + WOLFBOOT_PARTITION_SIZE - address)) ||
         ((address >= WOLFBOOT_PARTITION_SWAP_ADDRESS) &&
-         (address + (uintptr_t)len <=
-          WOLFBOOT_PARTITION_SWAP_ADDRESS + WOLFBOOT_SECTOR_SIZE)),
+         ((uintptr_t)len <=
+          WOLFBOOT_PARTITION_SWAP_ADDRESS + WOLFBOOT_SECTOR_SIZE - address)),
         "ext_flash_write address out of range: %p len %d",
         (void*)address, len);
     for (i = 0; i < len; i++) {

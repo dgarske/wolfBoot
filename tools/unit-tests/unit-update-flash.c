@@ -700,8 +700,10 @@ Suite *wolfboot_suite(void)
 
 
 #ifdef UNIT_TEST_FALLBACK_ONLY
+#ifdef EXT_ENCRYPTED
     tcase_add_test(fallback_verify, test_fallback_image_verification_rejects_corruption);
     suite_add_tcase(s, fallback_verify);
+#endif
     return s;
 #else
     tcase_add_test(empty_panic, test_empty_panic);

@@ -31,6 +31,9 @@
 
 #include "delta.h"
 #include "printf.h"
+#ifdef EXT_ENCRYPTED
+int wolfBoot_force_fallback_iv(int enable);
+#endif
 #ifdef WOLFBOOT_TPM
 #include "tpm.h"
 #endif

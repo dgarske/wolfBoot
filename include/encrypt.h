@@ -86,7 +86,6 @@ int ext_flash_decrypt_read(uintptr_t address, uint8_t *data, int len);
 
 #ifdef EXT_ENCRYPTED
 int wolfBoot_enable_fallback_iv(int enable);
-int wolfBoot_force_fallback_iv(int enable);
 void wolfBoot_crypto_set_iv(const uint8_t *nonce, uint32_t iv_counter);
 #endif
 
