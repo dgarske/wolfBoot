@@ -505,7 +505,7 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
     return 0;
 
 restore_bar:
-    pci_config_write32(bus, dev, fun, bar_idx, orig_bar);
+    pci_config_write32(bus, dev, fun, bar_off, orig_bar);
 
     return ret;
 }
