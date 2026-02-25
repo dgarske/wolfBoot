@@ -51,12 +51,12 @@
 #define PCI_SUBCLASS_BYTE_OFFSET    0x0A
 
 struct test_pci_bar_info {
-    uint32_t size;       /* power-of-2 bytes, 0 = not implemented */
-    uint8_t  is_io;      /* 1=IO, 0=MMIO */
-    uint8_t  is_64bit;   /* 1=64-bit MMIO (consumes next BAR slot too) */
-    uint8_t  is_prefetch;/* 1=prefetchable */
+    uint32_t size;        /* power-of-2 bytes, 0 = not implemented */
+    uint8_t  is_io;       /* 1=IO, 0=MMIO */
+    uint8_t  is_64bit;    /* 1=64-bit MMIO (consumes next BAR slot too) */
+    uint8_t  is_prefetch; /* 1=prefetchable */
     uint8_t  io_hi16_zero;/* 1=IO BAR only decodes 16 bits (upper 16 of mask are 0) */
-    uint32_t upper_mask; /* 64-bit BARs: upper half probe mask (0 = use default 0xFFFFFFFF) */
+    uint32_t upper_mask;  /* 64-bit BARs: upper half probe mask (0 = use default 0xFFFFFFFF) */
 };
 
 struct test_pci_node {

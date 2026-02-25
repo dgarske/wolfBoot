@@ -450,7 +450,7 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
              * the sizes back */
             pci_config_write32(bus, dev, fun, bar_off, 0xffffffff);
             pci_config_write32(bus, dev, fun, bar_off + 4, 0xffffffff);
-            bar_value = pci_config_read32(bus, dev,fun, bar_off);
+            bar_value = pci_config_read32(bus, dev, fun, bar_off);
             bar_align = bar_value & PCI_ENUM_MM_BAR_MASK;
             reg = pci_config_read32(bus, dev, fun, bar_off + 4);
             PCI_DEBUG_PRINTF("bar high 32bit: %d\r\n", reg);
