@@ -227,36 +227,36 @@ static void pci_io_config_write32(uint32_t bus, uint32_t dev, uint32_t func,
 static uint16_t pci_io_config_read16(uint32_t bus, uint32_t dev, uint32_t func,
                                      uint32_t off)
 {
-    uint32_t address = PCI_IO_CONFIG_ADDR(bus, dev, func, off);
-    uint32_t data = 0xffff;
+    uint32_t data;
     int aligned32;
+    uint32_t off_aligned;
 
     /* off must be 16 bit aligned */
-    if ((address & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
-        return data;
+    if ((off & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
+        return 0xffff;
 
-    address = pci_align32_address(address, &aligned32);
-    data = pci_io_config_read32(bus, dev, func, address);
-    if (!aligned32)
-        data >>= PCI_DATA_HI16_SHIFT;
-    else
+    off_aligned = pci_align32_address(off, &aligned32);
+    data = pci_io_config_read32(bus, dev, func, off_aligned);
+    if (aligned32)
         data &= PCI_DATA_LO16_MASK;
+    else
+        data >>= PCI_DATA_HI16_SHIFT;
     return (uint16_t)data;
 }
 
 static void pci_io_config_write16(uint32_t bus, uint32_t dev, uint32_t func,
                                   uint32_t off, uint16_t val)
 {
-    uint32_t dst_addr = PCI_IO_CONFIG_ADDR(bus, dev, func, off);
+    uint32_t off_aligned;
     uint32_t reg;
     int aligned32;
 
     /* off must be 16 bit aligned */
-    if ((dst_addr & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
+    if ((off & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
         return;
 
-    dst_addr = pci_align32_address(dst_addr, &aligned32);
-    reg = pci_io_config_read32(bus, dev, func, dst_addr);
+    off_aligned = pci_align32_address(off, &aligned32);
+    reg = pci_io_config_read32(bus, dev, func, off_aligned);
     if (aligned32) {
         reg &= PCI_DATA_HI16_MASK;
         reg |= val;
@@ -264,7 +264,7 @@ static void pci_io_config_write16(uint32_t bus, uint32_t dev, uint32_t func,
         reg &= PCI_DATA_LO16_MASK;
         reg |= (val << PCI_DATA_HI16_SHIFT);
     }
-    pci_io_config_write32(bus, dev, func, dst_addr, reg);
+    pci_io_config_write32(bus, dev, func, off_aligned, reg);
 }
 #endif /* PCI_USE_ECAM */
 
