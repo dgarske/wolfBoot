@@ -591,7 +591,16 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
     uint32_t mem_start;
     uint32_t io_start;
     uint32_t orig_cmd;
+    uint8_t  saved_bus;
+    uint32_t saved_mem;
+    uint32_t saved_pf;
+    uint32_t saved_io;
     int ret;
+
+    saved_bus = info->curr_bus_number;
+    saved_mem = info->mem;
+    saved_pf  = info->mem_pf;
+    saved_io  = info->io;
 
     orig_cmd = pci_config_read16(bus, dev, fun, PCI_COMMAND_OFFSET);
     pci_config_write16(bus, dev, fun, PCI_COMMAND_OFFSET, 0);
@@ -701,6 +710,13 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
     return 0;
 
  err:
+    info->curr_bus_number = saved_bus;
+    info->mem     = saved_mem;
+    info->mem_pf  = saved_pf;
+    info->io      = saved_io;
+    pci_config_write8(bus, dev, fun, PCI_PRIMARY_BUS, 0);
+    pci_config_write8(bus, dev, fun, PCI_SECONDARY_BUS, 0);
+    pci_config_write8(bus, dev, fun, PCI_SUB_SEC_BUS, 0);
     pci_config_write16(bus, dev, fun, PCI_COMMAND_OFFSET, orig_cmd);
     return -1;
 }
