@@ -80,8 +80,8 @@
 #define PCI_ENUM_TYPE_64bit   (0x1 << 1)
 #define PCI_ENUM_TYPE_32bit   (0x1)
 #define PCI_ENUM_IS_PREFETCH  (0x1 << 3)
-#define PCI_ENUM_MM_BAR_MASK ~(0xf)
-#define PCI_ENUM_IO_BAR_MASK ~(0x3)
+#define PCI_ENUM_MM_BAR_MASK (~0xfU)
+#define PCI_ENUM_IO_BAR_MASK (~0x3U)
 
 #define CAPID0_A_0_0_0_PCI (0xE4)
 #define DEVICE_ENABLE (0x54)
@@ -139,8 +139,8 @@ static uint32_t pci_align32_address(uint32_t addr, int *aligned)
 static uint32_t pci_config_ecam_make_address(uint8_t bus, uint8_t dev,
                                               uint8_t func, uint8_t off)
 {
-    return (PCI_ECAM_BASE +
-            ((bus&0xff) << 20) |
+    return PCI_ECAM_BASE +
+           (((bus&0xff) << 20) |
             ((dev&0x1f) << 15) |
             ((func&0x07) << 12) |
             (off & 0xfff));
@@ -198,11 +198,11 @@ static void pci_ecam_config_write16(uint8_t bus, uint8_t dev, uint8_t fun,
 #define PCI_IO_CONFIG_ADDR(bus, dev, fn, off) \
     (uint32_t)( \
            (1UL << PCI_CONFIG_ADDRESS_ENABLE_BIT_SHIFT) | \
-           (bus << PCI_CONFIG_ADDRESS_BUS_SHIFT) | \
-           (dev << PCI_CONFIG_ADDRESS_DEVICE_SHIFT) | \
-           (fn  << PCI_CONFIG_ADDRESS_FUNCTION_SHIFT) | \
-           ((off & 0xF00) << 16) | \
-            (off & PCI_CONFIG_ADDRESS_OFFSET_MASK))
+           ((bus) << PCI_CONFIG_ADDRESS_BUS_SHIFT) | \
+           ((dev) << PCI_CONFIG_ADDRESS_DEVICE_SHIFT) | \
+           ((fn)  << PCI_CONFIG_ADDRESS_FUNCTION_SHIFT) | \
+           (((off) & 0xF00) << 16) | \
+            ((off) & PCI_CONFIG_ADDRESS_OFFSET_MASK))
 
 static uint32_t pci_io_config_read32(uint32_t bus, uint32_t dev, uint32_t func,
                                     uint32_t off)
@@ -227,36 +227,36 @@ static void pci_io_config_write32(uint32_t bus, uint32_t dev, uint32_t func,
 static uint16_t pci_io_config_read16(uint32_t bus, uint32_t dev, uint32_t func,
                                      uint32_t off)
 {
-    uint32_t address = PCI_IO_CONFIG_ADDR(bus, dev, func, off);
-    uint32_t data = 0xffff;
+    uint32_t data;
     int aligned32;
+    uint32_t off_aligned;
 
     /* off must be 16 bit aligned */
-    if ((address & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
-        return data;
+    if ((off & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
+        return 0xffff;
 
-    address = pci_align32_address(address, &aligned32);
-    data = pci_io_config_read32(bus, dev, func, address);
-    if (!aligned32)
-        data >>= PCI_DATA_HI16_SHIFT;
-    else
+    off_aligned = pci_align32_address(off, &aligned32);
+    data = pci_io_config_read32(bus, dev, func, off_aligned);
+    if (aligned32)
         data &= PCI_DATA_LO16_MASK;
+    else
+        data >>= PCI_DATA_HI16_SHIFT;
     return (uint16_t)data;
 }
 
 static void pci_io_config_write16(uint32_t bus, uint32_t dev, uint32_t func,
                                   uint32_t off, uint16_t val)
 {
-    uint32_t dst_addr = PCI_IO_CONFIG_ADDR(bus, dev, func, off);
+    uint32_t off_aligned;
     uint32_t reg;
     int aligned32;
 
     /* off must be 16 bit aligned */
-    if ((dst_addr & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
+    if ((off & PCI_ADDR_16BIT_ALIGNED_MASK) != 0)
         return;
 
-    dst_addr = pci_align32_address(dst_addr, &aligned32);
-    reg = pci_io_config_read32(bus, dev, func, dst_addr);
+    off_aligned = pci_align32_address(off, &aligned32);
+    reg = pci_io_config_read32(bus, dev, func, off_aligned);
     if (aligned32) {
         reg &= PCI_DATA_HI16_MASK;
         reg |= val;
@@ -264,7 +264,7 @@ static void pci_io_config_write16(uint32_t bus, uint32_t dev, uint32_t func,
         reg &= PCI_DATA_LO16_MASK;
         reg |= (val << PCI_DATA_HI16_SHIFT);
     }
-    pci_io_config_write32(bus, dev, func, dst_addr, reg);
+    pci_io_config_write32(bus, dev, func, off_aligned, reg);
 }
 #endif /* PCI_USE_ECAM */
 
@@ -337,35 +337,7 @@ uint8_t pci_config_read8(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off)
     return reg;
 }
 
-uint64_t pci_get_mmio_addr(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t bar)
-{
-    uint32_t reg;
-    uint64_t addr = 0;
 
-    if (bar >= PCI_ENUM_MAX_BARS)
-    {
-        return addr;
-    }
-
-    reg = pci_config_read32(bus, dev, fun, PCI_BAR0_OFFSET + (bar * 8));
-    wolfBoot_printf("BAR%d[0x%x] reg value = 0x%x\r\n", bar, PCI_BAR0_OFFSET + (bar * 8), reg);
-
-    if (!pci_enum_is_mmio(reg))
-    {
-        return addr;
-    }
-
-    addr = reg & 0xFFFFFFF0;
-
-    if (pci_enum_is_64bit(reg))
-    {
-        reg = pci_config_read32(bus, dev, fun, (PCI_BAR0_OFFSET + 4) + (bar * 8));
-        wolfBoot_printf("BAR%d_HIGH[0x%x] reg value = 0x%x\r\n", bar, (PCI_BAR0_OFFSET + 4) + (bar * 8), reg);
-        addr |= ((uint64_t)reg << 32);
-    }
-
-    return addr;
-}
 
 static int pci_enum_is_64bit(uint32_t value)
 {
@@ -470,8 +442,16 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
         bar_align = bar_value & PCI_ENUM_MM_BAR_MASK;
         is_prefetch = pci_enum_is_prefetch(bar_value);
         if (pci_enum_is_64bit(bar_value)) {
+            *is_64bit = 1;
             orig_bar2 = pci_config_read32(bus, dev, fun, bar_off + 4);
+
+            /* rewrite 0xff..ff mask and re-read the first BAR value, specs
+             * requires to write the mask on both registers before reading
+             * the sizes back */
+            pci_config_write32(bus, dev, fun, bar_off, 0xffffffff);
             pci_config_write32(bus, dev, fun, bar_off + 4, 0xffffffff);
+            bar_value = pci_config_read32(bus, dev, fun, bar_off);
+            bar_align = bar_value & PCI_ENUM_MM_BAR_MASK;
             reg = pci_config_read32(bus, dev, fun, bar_off + 4);
             PCI_DEBUG_PRINTF("bar high 32bit: %d\r\n", reg);
             if (reg != 0xffffffff) {
@@ -479,7 +459,6 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
                 pci_config_write32(bus, dev, fun, bar_off + 4, orig_bar2);
                 goto restore_bar;
             }
-            *is_64bit = 1;
         }
         if (is_prefetch) {
             base = &info->mem_pf;
@@ -510,7 +489,7 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
     /* check max length */
     ret = pci_enum_next_aligned32(*base, &bar_value, align, limit);
     if (ret != 0) {
-        wolfBoot_printf("Not memory space for mapping the PCI device... skipping\r\n");
+        PCI_DEBUG_PRINTF("Not memory space for mapping the PCI device... skipping\r\n");
         goto restore_bar;
     }
 
@@ -526,7 +505,7 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
     return 0;
 
 restore_bar:
-    pci_config_write32(bus, dev, fun, bar_idx, orig_bar);
+    pci_config_write32(bus, dev, fun, bar_off, orig_bar);
 
     return ret;
 }
@@ -612,7 +591,16 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
     uint32_t mem_start;
     uint32_t io_start;
     uint32_t orig_cmd;
+    uint8_t  saved_bus;
+    uint32_t saved_mem;
+    uint32_t saved_pf;
+    uint32_t saved_io;
     int ret;
+
+    saved_bus = info->curr_bus_number;
+    saved_mem = info->mem;
+    saved_pf  = info->mem_pf;
+    saved_io  = info->io;
 
     orig_cmd = pci_config_read16(bus, dev, fun, PCI_COMMAND_OFFSET);
     pci_config_write16(bus, dev, fun, PCI_COMMAND_OFFSET, 0);
@@ -627,6 +615,8 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
      * (curr_bus_number,0xff) to scan the bus behind the bridge */
     pci_config_write8(bus, dev, fun, PCI_SUB_SEC_BUS, 0xff);
 
+    /* PCI bridge window registers enforce alignment constraints from the spec:
+     * prefetch and MMIO windows are 1MB-aligned, IO windows are 4KB-aligned. */
     ret = pci_align_check_up(info->mem_pf, ONE_MB,
                              info->mem_pf_limit,
                              &prefetch_start);
@@ -655,7 +645,10 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
      * bridge */
     pci_config_write8(bus, dev, fun, PCI_SUB_SEC_BUS, info->curr_bus_number);
 
-    /* upate prefetch range */
+    /* PCI bridge window registers enforce alignment constraints from the spec:
+     * prefetch and MMIO windows are 1MB-aligned, IO windows are 4KB-aligned.
+     * After enumeration, the end of each window must also be aligned up to meet
+     * these granularity requirements. */
     if (prefetch_start != info->mem_pf) {
         ret = pci_align_check_up(info->mem_pf, ONE_MB,
                                  info->mem_pf_limit,
@@ -722,11 +715,18 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
     return 0;
 
  err:
+    info->curr_bus_number = saved_bus;
+    info->mem     = saved_mem;
+    info->mem_pf  = saved_pf;
+    info->io      = saved_io;
+    pci_config_write8(bus, dev, fun, PCI_PRIMARY_BUS, 0);
+    pci_config_write8(bus, dev, fun, PCI_SECONDARY_BUS, 0);
+    pci_config_write8(bus, dev, fun, PCI_SUB_SEC_BUS, 0);
     pci_config_write16(bus, dev, fun, PCI_COMMAND_OFFSET, orig_cmd);
     return -1;
 }
 
-uint32_t pci_enum_bus(uint8_t bus, struct pci_enum_info *info)
+int pci_enum_bus(uint8_t bus, struct pci_enum_info *info)
 {
     uint16_t header_type;
     uint32_t vd_code;
@@ -781,16 +781,16 @@ int pci_pre_enum(void)
     uint32_t reg;
 
     reg = pci_config_read32(0, 0, 0, CAPID0_A_0_0_0_PCI);
-    wolfBoot_printf("cap a %d\r\n", reg);
-    wolfBoot_printf("ddt disabled %d\r\n", reg & DTT_DEVICE_DISABLE);
+    PCI_DEBUG_PRINTF("cap a %d\r\n", reg);
+    PCI_DEBUG_PRINTF("ddt disabled %d\r\n", reg & DTT_DEVICE_DISABLE);
     reg &= ~(DTT_DEVICE_DISABLE);
     pci_config_write32(0, 0, 0, CAPID0_A_0_0_0_PCI, reg);
     reg = pci_config_read32(0, 0, 0, DEVICE_ENABLE);
-    wolfBoot_printf("device enable: %d\r\n", reg);
+    PCI_DEBUG_PRINTF("device enable: %d\r\n", reg);
     reg |= (1 << 7);
     pci_config_write32(0, 0, 0, DEVICE_ENABLE, reg);
      reg = pci_config_read32(0, 0, 0, DEVICE_ENABLE);
-    wolfBoot_printf("device enable: %d\r\n", reg);
+    PCI_DEBUG_PRINTF("device enable: %d\r\n", reg);
 
     return 0;
 }
@@ -817,11 +817,11 @@ void pci_dump(uint8_t bus, uint8_t dev, uint8_t fun)
     for (i = 0; i < 256; i++) {
         if (i % 0x10 == 0x0) {
             if (i < 0x10) {
-                wolfBoot_printf("0");
+                PCI_DEBUG_PRINTF("0");
             }
-            wolfBoot_printf("%x: ", (int)i);
+            PCI_DEBUG_PRINTF("%x: ", (int)i);
         }
-        wolfBoot_printf("%s%x%s", (ptr[i] < 0x10 ? "0" :""), (int)ptr[i],
+        PCI_DEBUG_PRINTF("%s%x%s", (ptr[i] < 0x10 ? "0" :""), (int)ptr[i],
                         (i % 0x10 == 0xf ? "\r\n":" "));
     }
 }
@@ -856,12 +856,12 @@ static void pci_dump_bus(uint8_t bus)
             }
 
             if (bus < 0x10)
-                wolfBoot_printf("0");
-            wolfBoot_printf("%x:", bus);
+                PCI_DEBUG_PRINTF("0");
+            PCI_DEBUG_PRINTF("%x:", bus);
             if (dev < 0x10)
-                wolfBoot_printf("0");
-            wolfBoot_printf("%x.", dev);
-            wolfBoot_printf("%d \r\n", fun);
+                PCI_DEBUG_PRINTF("0");
+            PCI_DEBUG_PRINTF("%x.", dev);
+            PCI_DEBUG_PRINTF("%d \r\n", fun);
             pci_dump(bus, dev, fun);
             header_type = pci_config_read16(bus, dev, fun,
                                             PCI_HEADER_TYPE_OFFSET);
@@ -906,7 +906,7 @@ int pci_enum_do(void)
 
     ret = pci_pre_enum();
     if (ret != 0) {
-        wolfBoot_printf("pci_pre_enum error: %d\r\n", ret);
+        PCI_DEBUG_PRINTF("pci_pre_enum error: %d\r\n", ret);
         return ret;
     }
 

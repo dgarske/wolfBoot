@@ -50,8 +50,8 @@
 #define PCI_PREFETCH_LIMIT_OFF 0x26
 #define PCI_MMIO_BASE_OFF 0x20
 #define PCI_MMIO_LIMIT_OFF 0x22
-#define PCI_IO_BASE_OFF 0x30
-#define PCI_IO_LIMIT_OFF 0x32
+#define PCI_IO_BASE_OFF 0x1C
+#define PCI_IO_LIMIT_OFF 0x1D
 #define PCI_PWR_MGMT_CTRL_STATUS 0x84
 #define PCI_POWER_STATE_MASK 0x3
 /* Shifts & masks for CONFIG_ADDRESS register */
@@ -117,9 +117,8 @@ void pci_config_write16(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off,
 uint8_t pci_config_read8(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off);
 void pci_config_write8(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t off,
                        uint8_t value);
-uint64_t pci_get_mmio_addr(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t bar);
 
-uint32_t pci_enum_bus(uint8_t bus, struct pci_enum_info *info);
+int pci_enum_bus(uint8_t bus, struct pci_enum_info *info);
 
 int pci_enum_do(void);
 int pci_pre_enum(void);
