@@ -721,7 +721,7 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
     return -1;
 }
 
-uint32_t pci_enum_bus(uint8_t bus, struct pci_enum_info *info)
+int pci_enum_bus(uint8_t bus, struct pci_enum_info *info)
 {
     uint16_t header_type;
     uint32_t vd_code;
