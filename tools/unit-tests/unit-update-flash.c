@@ -52,6 +52,32 @@ static void reset_mock_stats(void);
 static void prepare_flash(void);
 static void cleanup_flash(void);
 
+#ifdef CUSTOM_ENCRYPT_KEY
+int wolfBoot_get_encrypt_key(uint8_t *k, uint8_t *nonce)
+{
+    int i;
+    for (i = 0; i < ENCRYPT_KEY_SIZE; i++) {
+        k[i] = (uint8_t)(i + 1);
+    }
+    for (i = 0; i < ENCRYPT_NONCE_SIZE; i++) {
+        nonce[i] = (uint8_t)(0xA5 + i);
+    }
+    return 0;
+}
+
+int wolfBoot_set_encrypt_key(const uint8_t *key, const uint8_t *nonce)
+{
+    (void)key;
+    (void)nonce;
+    return 0;
+}
+
+int wolfBoot_erase_encrypt_key(void)
+{
+    return 0;
+}
+#endif
+
 START_TEST (test_boot_success_sets_state)
 {
     uint8_t state = 0;
@@ -90,6 +116,7 @@ static void reset_mock_stats(void)
 {
     wolfBoot_staged_ok = 0;
     wolfBoot_panicked = 0;
+    ext_flash_reset_lock();
 }
 
 
@@ -198,6 +225,123 @@ static int add_payload(uint8_t part, uint32_t version, uint32_t size)
 
 }
 
+#ifdef EXT_ENCRYPTED
+static int build_image_buffer(uint8_t part, uint32_t version, uint32_t size,
+    uint8_t *buf, uint32_t buf_sz)
+{
+    uint32_t word;
+    uint16_t word16;
+    uint32_t total = size + IMAGE_HEADER_SIZE;
+    int i;
+    int ret;
+    wc_Sha256 sha;
+    uint8_t digest[SHA256_DIGEST_SIZE];
+
+    if (buf_sz < total)
+        return -1;
+
+    memset(buf, 0xFF, buf_sz);
+
+    ret = wc_InitSha256_ex(&sha, NULL, INVALID_DEVID);
+    if (ret != 0)
+        return ret;
+
+    memcpy(buf, "WOLF", 4);
+    memcpy(buf + 4, &size, 4);
+
+    word = 4 << 16 | HDR_VERSION;
+    memcpy(buf + 8, &word, 4);
+    memcpy(buf + 12, &version, 4);
+
+    word = 2 << 16 | HDR_IMG_TYPE;
+    memcpy(buf + 16, &word, 4);
+    word16 = HDR_IMG_TYPE_AUTH_NONE | HDR_IMG_TYPE_APP;
+    memcpy(buf + 20, &word16, 2);
+
+    ret = wc_Sha256Update(&sha, buf, DIGEST_TLV_OFF_IN_HDR);
+    if (ret != 0)
+        return ret;
+
+    srandom(part);
+    for (i = IMAGE_HEADER_SIZE; i < (int)total; i += 4) {
+        uint32_t rnd = (random() << 16) | random();
+        memcpy(buf + i, &rnd, 4);
+    }
+    for (i = IMAGE_HEADER_SIZE; i < (int)total; i += WOLFBOOT_SHA_BLOCK_SIZE) {
+        int len = WOLFBOOT_SHA_BLOCK_SIZE;
+        if ((int)total - i < len)
+            len = (int)total - i;
+        ret = wc_Sha256Update(&sha, buf + i, len);
+        if (ret != 0)
+            return ret;
+    }
+
+    ret = wc_Sha256Final(&sha, digest);
+    if (ret != 0)
+        return ret;
+    wc_Sha256Free(&sha);
+
+    word = SHA256_DIGEST_SIZE << 16 | HDR_SHA256;
+    memcpy(buf + DIGEST_TLV_OFF_IN_HDR, &word, 4);
+    memcpy(buf + DIGEST_TLV_OFF_IN_HDR + 4, digest, SHA256_DIGEST_SIZE);
+
+    return 0;
+}
+
+static int add_payload_encrypted(uint8_t part, uint32_t version, uint32_t size,
+    int use_fallback_iv)
+{
+    uint32_t total = size + IMAGE_HEADER_SIZE;
+    uint8_t *buf = NULL;
+    uintptr_t base = (uintptr_t)WOLFBOOT_PARTITION_UPDATE_ADDRESS;
+    int ret;
+    int prev = 0;
+
+    if (part == PART_BOOT)
+        base = (uintptr_t)WOLFBOOT_PARTITION_BOOT_ADDRESS;
+    else if (part == PART_UPDATE)
+        base = (uintptr_t)WOLFBOOT_PARTITION_UPDATE_ADDRESS;
+    else
+        return -1;
+
+    buf = malloc(total);
+    if (!buf)
+        return -1;
+
+    ret = build_image_buffer(part, version, size, buf, total);
+    if (ret != 0) {
+        free(buf);
+        return ret;
+    }
+
+    if (use_fallback_iv)
+        prev = wolfBoot_enable_fallback_iv(1);
+
+    ext_flash_unlock();
+    {
+        uint32_t off = 0;
+        while (off < total) {
+            uint32_t chunk = total - off;
+            if (chunk > WOLFBOOT_SECTOR_SIZE)
+                chunk = WOLFBOOT_SECTOR_SIZE;
+            if (use_fallback_iv)
+                wolfBoot_enable_fallback_iv(1);
+            ret = ext_flash_encrypt_write(base + off, buf + off, chunk);
+            if (ret != 0)
+                break;
+            off += chunk;
+        }
+    }
+    ext_flash_lock();
+
+    if (use_fallback_iv)
+        wolfBoot_enable_fallback_iv(prev);
+
+    free(buf);
+    return ret;
+}
+#endif
+
 START_TEST (test_empty_panic)
 {
     reset_mock_stats();
@@ -210,6 +354,31 @@ START_TEST (test_empty_panic)
 }
 END_TEST
 
+#ifdef EXT_ENCRYPTED
+START_TEST (test_fallback_image_verification_rejects_corruption)
+{
+    int ret;
+    uint8_t bad = 0x00;
+
+    reset_mock_stats();
+    prepare_flash();
+
+    add_payload(PART_BOOT, 1, TEST_SIZE_SMALL);
+    ret = add_payload_encrypted(PART_UPDATE, 2, TEST_SIZE_SMALL, 1);
+    ck_assert_int_eq(ret, 0);
+
+    ext_flash_unlock();
+    ext_flash_write((uintptr_t)WOLFBOOT_PARTITION_UPDATE_ADDRESS +
+        IMAGE_HEADER_SIZE + 16, &bad, 1);
+    ext_flash_lock();
+
+    ret = wolfBoot_update(1);
+    ck_assert_int_eq(ret, -1);
+
+    cleanup_flash();
+}
+END_TEST
+#endif
 
 START_TEST (test_sunnyday_noupdate)
 {
@@ -498,6 +667,9 @@ Suite *wolfboot_suite(void)
     Suite *s = suite_create("wolfboot");
 
     /* Test cases */
+#ifdef UNIT_TEST_FALLBACK_ONLY
+    TCase *fallback_verify = tcase_create("Fallback verify");
+#else
     TCase *empty_panic = tcase_create("Empty partition panic test");
     TCase *sunnyday_noupdate =
         tcase_create("Sunny day test with no update available");
@@ -521,9 +693,19 @@ Suite *wolfboot_suite(void)
     TCase *swap_resume = tcase_create("Swap resume noop");
     TCase *diffbase_version = tcase_create("Diffbase version lookup");
     TCase *boot_success = tcase_create("Boot success state");
+#ifdef EXT_ENCRYPTED
+    TCase *fallback_verify = tcase_create("Fallback verify");
+#endif
+#endif
 
 
-
+#ifdef UNIT_TEST_FALLBACK_ONLY
+#ifdef EXT_ENCRYPTED
+    tcase_add_test(fallback_verify, test_fallback_image_verification_rejects_corruption);
+    suite_add_tcase(s, fallback_verify);
+#endif
+    return s;
+#else
     tcase_add_test(empty_panic, test_empty_panic);
     tcase_add_test(sunnyday_noupdate, test_sunnyday_noupdate);
     tcase_add_test(forward_update_samesize, test_forward_update_samesize);
@@ -541,8 +723,9 @@ Suite *wolfboot_suite(void)
     tcase_add_test(swap_resume, test_swap_resume_noop);
     tcase_add_test(diffbase_version, test_diffbase_version_reads);
     tcase_add_test(boot_success, test_boot_success_sets_state);
-
-
+#ifdef EXT_ENCRYPTED
+    tcase_add_test(fallback_verify, test_fallback_image_verification_rejects_corruption);
+#endif
 
     suite_add_tcase(s, empty_panic);
     suite_add_tcase(s, sunnyday_noupdate);
@@ -561,6 +744,10 @@ Suite *wolfboot_suite(void)
     suite_add_tcase(s, swap_resume);
     suite_add_tcase(s, diffbase_version);
     suite_add_tcase(s, boot_success);
+#ifdef EXT_ENCRYPTED
+    suite_add_tcase(s, fallback_verify);
+#endif
+#endif
 
 
 

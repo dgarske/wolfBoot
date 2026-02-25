@@ -68,6 +68,7 @@ static int encrypt_initialized = 0;
 
 static uint8_t encrypt_iv_nonce[ENCRYPT_NONCE_SIZE] XALIGNED(4);
 static uint32_t encrypt_iv_offset = 0;
+static int fallback_iv_forced = 0;
 
 #define FALLBACK_IV_OFFSET 0x00100000U
     #if !defined(XMEMSET)
@@ -1395,6 +1396,13 @@ int RAMFUNCTION wolfBoot_enable_fallback_iv(int enable)
     return prev;
 }
 
+int RAMFUNCTION wolfBoot_force_fallback_iv(int enable)
+{
+    int prev = fallback_iv_forced;
+    fallback_iv_forced = enable ? 1 : 0;
+    return prev;
+}
+
 void RAMFUNCTION wolfBoot_crypto_set_iv(const uint8_t *nonce, uint32_t iv_counter)
 {
 #if defined(ENCRYPT_WITH_CHACHA)
@@ -2174,6 +2182,8 @@ int RAMFUNCTION ext_flash_decrypt_read(uintptr_t address, uint8_t *data, int len
                     return -1;
                 }
             }
+            if (fallback_iv_forced)
+                encrypt_iv_offset = FALLBACK_IV_OFFSET;
             wolfBoot_crypto_set_iv(encrypt_iv_nonce, iv_counter);
             break;
         case PART_SWAP:

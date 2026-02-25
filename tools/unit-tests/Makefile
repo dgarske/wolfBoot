@@ -28,8 +28,8 @@ LDFLAGS+=-ftest-coverage
 TESTS:=unit-parser unit-extflash unit-string unit-spi-flash unit-aes128 \
        unit-aes256 unit-chacha20 unit-pci unit-mock-state unit-sectorflags \
        unit-image unit-nvm unit-nvm-flagshome unit-enc-nvm \
-       unit-enc-nvm-flagshome unit-delta unit-update-flash unit-update-ram \
-       unit-pkcs11_store
+       unit-enc-nvm-flagshome unit-delta unit-update-flash \
+       unit-update-flash-enc unit-update-ram unit-pkcs11_store
 
 all: $(TESTS)
 
@@ -136,6 +136,16 @@ unit-delta: ../../include/target.h unit-delta.c
 
 unit-update-flash: ../../include/target.h unit-update-flash.c
 	gcc -o $@ unit-update-flash.c ../../src/image.c $(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/sha256.c $(CFLAGS) $(LDFLAGS)
+
+unit-update-flash-enc:CFLAGS+=-DMOCK_PARTITIONS -DWOLFBOOT_NO_SIGN -DUNIT_TEST_AUTH \
+	-DWOLFBOOT_HASH_SHA256 -DPRINTF_ENABLED -DEXT_FLASH -DPART_UPDATE_EXT \
+	-DPART_SWAP_EXT -DEXT_ENCRYPTED -DENCRYPT_WITH_CHACHA -DHAVE_CHACHA \
+	-DCUSTOM_ENCRYPT_KEY -DUNIT_TEST_FALLBACK_ONLY
+unit-update-flash-enc: ../../include/target.h unit-update-flash.c
+	gcc -o $@ unit-update-flash.c ../../src/image.c \
+	$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/sha256.c \
+	$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/chacha.c \
+	$(CFLAGS) $(LDFLAGS)
 
 unit-update-ram: ../../include/target.h unit-update-ram.c
 	gcc -o $@ unit-update-ram.c ../../src/image.c $(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/sha256.c $(CFLAGS) $(LDFLAGS)
