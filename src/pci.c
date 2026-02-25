@@ -446,7 +446,7 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
             orig_bar2 = pci_config_read32(bus, dev, fun, bar_off + 4);
 
             /* rewrite 0xff..ff mask and re-read the first BAR value, specs
-             * requires to wirte the mask on both registers before reading
+             * requires to write the mask on both registers before reading
              * the sizes back */
             pci_config_write32(bus, dev, fun, bar_off, 0xffffffff);
             pci_config_write32(bus, dev, fun, bar_off + 4, 0xffffffff);
