@@ -3007,6 +3007,7 @@ The following build options are available for the S32K1xx HAL:
 | `DEBUG_UART` | Enable LPUART1 debug output. |
 | `DEBUG_HARDFAULT` | Enable detailed hard fault debugging output. |
 | `S32K144`, `S32K146`, `S32K148` | Select variant (default is S32K142). Affects flash/SRAM size definitions. |
+| `WOLFBOOT_FOPT` | Override the Flash Option Byte (FOPT) in the Flash Configuration Field (FCF at 0x40D). Default is `0xFF`. Set via `CFLAGS_EXTRA+=-DWOLFBOOT_FOPT=0xF7` in your `.config` file. |
 
 **IMPORTANT:** Flash sector size depends on the S32K variant:
 - **S32K142** (256KB Flash): 2KB sectors (`WOLFBOOT_SECTOR_SIZE=0x800`)
