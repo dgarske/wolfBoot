@@ -489,7 +489,7 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
     /* check max length */
     ret = pci_enum_next_aligned32(*base, &bar_value, align, limit);
     if (ret != 0) {
-        wolfBoot_printf("Not memory space for mapping the PCI device... skipping\r\n");
+        PCI_DEBUG_PRINTF("Not memory space for mapping the PCI device... skipping\r\n");
         goto restore_bar;
     }
 
@@ -776,16 +776,16 @@ int pci_pre_enum(void)
     uint32_t reg;
 
     reg = pci_config_read32(0, 0, 0, CAPID0_A_0_0_0_PCI);
-    wolfBoot_printf("cap a %d\r\n", reg);
-    wolfBoot_printf("ddt disabled %d\r\n", reg & DTT_DEVICE_DISABLE);
+    PCI_DEBUG_PRINTF("cap a %d\r\n", reg);
+    PCI_DEBUG_PRINTF("ddt disabled %d\r\n", reg & DTT_DEVICE_DISABLE);
     reg &= ~(DTT_DEVICE_DISABLE);
     pci_config_write32(0, 0, 0, CAPID0_A_0_0_0_PCI, reg);
     reg = pci_config_read32(0, 0, 0, DEVICE_ENABLE);
-    wolfBoot_printf("device enable: %d\r\n", reg);
+    PCI_DEBUG_PRINTF("device enable: %d\r\n", reg);
     reg |= (1 << 7);
     pci_config_write32(0, 0, 0, DEVICE_ENABLE, reg);
      reg = pci_config_read32(0, 0, 0, DEVICE_ENABLE);
-    wolfBoot_printf("device enable: %d\r\n", reg);
+    PCI_DEBUG_PRINTF("device enable: %d\r\n", reg);
 
     return 0;
 }
@@ -812,11 +812,11 @@ void pci_dump(uint8_t bus, uint8_t dev, uint8_t fun)
     for (i = 0; i < 256; i++) {
         if (i % 0x10 == 0x0) {
             if (i < 0x10) {
-                wolfBoot_printf("0");
+                PCI_DEBUG_PRINTF("0");
             }
-            wolfBoot_printf("%x: ", (int)i);
+            PCI_DEBUG_PRINTF("%x: ", (int)i);
         }
-        wolfBoot_printf("%s%x%s", (ptr[i] < 0x10 ? "0" :""), (int)ptr[i],
+        PCI_DEBUG_PRINTF("%s%x%s", (ptr[i] < 0x10 ? "0" :""), (int)ptr[i],
                         (i % 0x10 == 0xf ? "\r\n":" "));
     }
 }
@@ -851,12 +851,12 @@ static void pci_dump_bus(uint8_t bus)
             }
 
             if (bus < 0x10)
-                wolfBoot_printf("0");
-            wolfBoot_printf("%x:", bus);
+                PCI_DEBUG_PRINTF("0");
+            PCI_DEBUG_PRINTF("%x:", bus);
             if (dev < 0x10)
-                wolfBoot_printf("0");
-            wolfBoot_printf("%x.", dev);
-            wolfBoot_printf("%d \r\n", fun);
+                PCI_DEBUG_PRINTF("0");
+            PCI_DEBUG_PRINTF("%x.", dev);
+            PCI_DEBUG_PRINTF("%d \r\n", fun);
             pci_dump(bus, dev, fun);
             header_type = pci_config_read16(bus, dev, fun,
                                             PCI_HEADER_TYPE_OFFSET);
@@ -901,7 +901,7 @@ int pci_enum_do(void)
 
     ret = pci_pre_enum();
     if (ret != 0) {
-        wolfBoot_printf("pci_pre_enum error: %d\r\n", ret);
+        PCI_DEBUG_PRINTF("pci_pre_enum error: %d\r\n", ret);
         return ret;
     }
 
