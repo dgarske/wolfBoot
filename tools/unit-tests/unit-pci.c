@@ -912,7 +912,7 @@ START_TEST(test_program_bar_64bit_upper_reject)
     test_pci_init(&t);
     dev_node = test_pci_add_dev(&t, 0, 0, 0x1234, 0x5678, TEST_PCI_ROOT_BUS);
     /* 64-bit prefetchable MMIO BAR, 1MB, but upper mask = 0 (not 0xFFFFFFFF)
-     * our imple refuses to map so much address space for now */
+     * our implementation refuses to map so much address space for now */
     test_pci_dev_set_bar(&t, dev_node, 0, 0x100000, TEST_PCI_BAR_64BIT | TEST_PCI_BAR_PF);
     /* set it manually as test_pci_dev_set_bar only handle 32-bit size */
     t.nodes[dev_node].bars[0].upper_mask = 0x0000000F;
