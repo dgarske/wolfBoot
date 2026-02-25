@@ -615,6 +615,8 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
      * (curr_bus_number,0xff) to scan the bus behind the bridge */
     pci_config_write8(bus, dev, fun, PCI_SUB_SEC_BUS, 0xff);
 
+    /* PCI bridge window registers enforce alignment constraints from the spec:
+     * prefetch and MMIO windows are 1MB-aligned, IO windows are 4KB-aligned. */
     ret = pci_align_check_up(info->mem_pf, ONE_MB,
                              info->mem_pf_limit,
                              &prefetch_start);
@@ -643,7 +645,10 @@ static int pci_program_bridge(uint8_t bus, uint8_t dev, uint8_t fun,
      * bridge */
     pci_config_write8(bus, dev, fun, PCI_SUB_SEC_BUS, info->curr_bus_number);
 
-    /* upate prefetch range */
+    /* PCI bridge window registers enforce alignment constraints from the spec:
+     * prefetch and MMIO windows are 1MB-aligned, IO windows are 4KB-aligned.
+     * After enumeration, the end of each window must also be aligned up to meet
+     * these granularity requirements. */
     if (prefetch_start != info->mem_pf) {
         ret = pci_align_check_up(info->mem_pf, ONE_MB,
                                  info->mem_pf_limit,
