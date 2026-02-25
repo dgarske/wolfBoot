@@ -442,8 +442,16 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
         bar_align = bar_value & PCI_ENUM_MM_BAR_MASK;
         is_prefetch = pci_enum_is_prefetch(bar_value);
         if (pci_enum_is_64bit(bar_value)) {
+            *is_64bit = 1;
             orig_bar2 = pci_config_read32(bus, dev, fun, bar_off + 4);
+
+            /* rewrite 0xff..ff mask and re-read the first BAR value, specs
+             * requires to wirte the mask on both registers before reading
+             * the sizes back */
+            pci_config_write32(bus, dev, fun, bar_off, 0xffffffff);
             pci_config_write32(bus, dev, fun, bar_off + 4, 0xffffffff);
+            bar_value = pci_config_read32(bus, dev,fun, bar_off);
+            bar_align = bar_value & PCI_ENUM_MM_BAR_MASK;
             reg = pci_config_read32(bus, dev, fun, bar_off + 4);
             PCI_DEBUG_PRINTF("bar high 32bit: %d\r\n", reg);
             if (reg != 0xffffffff) {
@@ -451,7 +459,6 @@ static int pci_program_bar(uint8_t bus, uint8_t dev, uint8_t fun,
                 pci_config_write32(bus, dev, fun, bar_off + 4, orig_bar2);
                 goto restore_bar;
             }
-            *is_64bit = 1;
         }
         if (is_prefetch) {
             base = &info->mem_pf;
