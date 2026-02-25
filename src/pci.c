@@ -80,8 +80,8 @@
 #define PCI_ENUM_TYPE_64bit   (0x1 << 1)
 #define PCI_ENUM_TYPE_32bit   (0x1)
 #define PCI_ENUM_IS_PREFETCH  (0x1 << 3)
-#define PCI_ENUM_MM_BAR_MASK ~(0xf)
-#define PCI_ENUM_IO_BAR_MASK ~(0x3)
+#define PCI_ENUM_MM_BAR_MASK (~0xfU)
+#define PCI_ENUM_IO_BAR_MASK (~0x3U)
 
 #define CAPID0_A_0_0_0_PCI (0xE4)
 #define DEVICE_ENABLE (0x54)
@@ -139,8 +139,8 @@ static uint32_t pci_align32_address(uint32_t addr, int *aligned)
 static uint32_t pci_config_ecam_make_address(uint8_t bus, uint8_t dev,
                                               uint8_t func, uint8_t off)
 {
-    return (PCI_ECAM_BASE +
-            ((bus&0xff) << 20) |
+    return PCI_ECAM_BASE +
+           (((bus&0xff) << 20) |
             ((dev&0x1f) << 15) |
             ((func&0x07) << 12) |
             (off & 0xfff));
@@ -198,11 +198,11 @@ static void pci_ecam_config_write16(uint8_t bus, uint8_t dev, uint8_t fun,
 #define PCI_IO_CONFIG_ADDR(bus, dev, fn, off) \
     (uint32_t)( \
            (1UL << PCI_CONFIG_ADDRESS_ENABLE_BIT_SHIFT) | \
-           (bus << PCI_CONFIG_ADDRESS_BUS_SHIFT) | \
-           (dev << PCI_CONFIG_ADDRESS_DEVICE_SHIFT) | \
-           (fn  << PCI_CONFIG_ADDRESS_FUNCTION_SHIFT) | \
-           ((off & 0xF00) << 16) | \
-            (off & PCI_CONFIG_ADDRESS_OFFSET_MASK))
+           ((bus) << PCI_CONFIG_ADDRESS_BUS_SHIFT) | \
+           ((dev) << PCI_CONFIG_ADDRESS_DEVICE_SHIFT) | \
+           ((fn)  << PCI_CONFIG_ADDRESS_FUNCTION_SHIFT) | \
+           (((off) & 0xF00) << 16) | \
+            ((off) & PCI_CONFIG_ADDRESS_OFFSET_MASK))
 
 static uint32_t pci_io_config_read32(uint32_t bus, uint32_t dev, uint32_t func,
                                     uint32_t off)
