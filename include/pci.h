@@ -50,8 +50,8 @@
 #define PCI_PREFETCH_LIMIT_OFF 0x26
 #define PCI_MMIO_BASE_OFF 0x20
 #define PCI_MMIO_LIMIT_OFF 0x22
-#define PCI_IO_BASE_OFF 0x30
-#define PCI_IO_LIMIT_OFF 0x32
+#define PCI_IO_BASE_OFF 0x1C
+#define PCI_IO_LIMIT_OFF 0x1D
 #define PCI_PWR_MGMT_CTRL_STATUS 0x84
 #define PCI_POWER_STATE_MASK 0x3
 /* Shifts & masks for CONFIG_ADDRESS register */
