@@ -907,12 +907,13 @@ Notes:
 ### PolarFire SoC M-Mode (bare-metal eNVM boot)
 
 In M-Mode wolfBoot runs directly on the E51 monitor core from eNVM — no HSS required. The signed
-application is loaded from SC QSPI flash into LIM (on-chip RAM). This is the simplest bring-up path.
+application is loaded from SC QSPI flash into L2 Scratchpad (on-chip RAM). This is the simplest
+bring-up path.
 
 **Boot flow:**
 1. CPU starts at eNVM reset vector (`0x20220100`)
 2. Startup code copies wolfBoot to L2 Scratchpad (`0x0A000000`) and jumps there
-3. wolfBoot reads the signed image from QSPI flash into LIM (`0x08000000`)
+3. wolfBoot reads the signed image from QSPI flash into L2 Scratchpad (`0x0A010200`)
 4. Signature is verified, then execution jumps to the application
 
 **Build:**
@@ -935,7 +936,7 @@ make test-app/image_v1_signed.bin
 **Flash the signed application to QSPI** using the UART programmer (requires `EXT_FLASH=1` and
 `UART_QSPI_PROGRAM=1` in `.config`, and `pyserial` installed):
 ```sh
-python3 tools/scripts/mpfs_qspi_prog.py /dev/ttyUSB1 \
+python3 tools/scripts/mpfs_qspi_prog.py /dev/ttyUSB0 \
     test-app/image_v1_signed.bin 0x20000
 ```
 
@@ -966,7 +967,17 @@ Booting at 0x...
   wolfBoot uses a calibrated busy-loop for all delays (`udelay()` in `hal/mpfs250.c`).
 - `UART_QSPI_PROGRAM=1` adds a 3-second boot pause every time. Set to `0` once the flash
   contents are stable.
-- The config uses `WOLFBOOT_LOAD_ADDRESS=0x08000200` to keep the image header within LIM.
+- The config uses `WOLFBOOT_LOAD_ADDRESS=0x0A010200` to place the application in L2 Scratchpad
+  above wolfBoot code (~64KB at `0x0A000000`), with the stack at the top of the 256KB region.
+- **LIM instruction fetch limitation:** The on-chip LIM (`0x08000000`, 2MB) is backed by L2
+  cache ways. When `L2_WAY_ENABLE` is set to `0x0B` (all cache ways 0-7 active for caching),
+  no ways remain for LIM backing SRAM. Data reads from LIM work through the L2 cache, but
+  instruction fetch silently hangs — the CPU stalls with no trap generated. For this reason the
+  application is loaded into L2 Scratchpad (`0x0A000000`), which is always accessible regardless
+  of `L2_WAY_ENABLE`. To use LIM, reduce `L2_WAY_ENABLE` to free cache ways for LIM backing.
+- **Strip debug symbols** before signing the test-app ELF. The debug build is ~150KB but the
+  stripped ELF is ~5KB. L2 Scratchpad has ~150KB available between wolfBoot code and the stack:
+  `riscv64-unknown-elf-strip --strip-debug test-app/image.elf`
 
 ### PolarFire testing
 

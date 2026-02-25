@@ -175,6 +175,15 @@ unsigned long WEAKFUNCTION handle_trap(unsigned long cause, unsigned long epc,
     last_epc = epc;
     last_tval = tval;
 
+#ifdef DEBUG_BOOT
+    /* Debug: print trap info for synchronous exceptions (not interrupts) */
+    if (!(cause & MCAUSE_INT)) {
+        wolfBoot_printf("TRAP: cause=%lx epc=%lx tval=%lx\n", cause, epc,
+            tval);
+        while (1) ; /* halt to prevent infinite trap-mret loop */
+    }
+#endif
+
 #ifdef PLIC_BASE
     /* Check if this is an interrupt (MSB set) */
     if (cause & MCAUSE_INT) {
@@ -463,7 +472,8 @@ void do_boot(const uint32_t *app_offset)
      * Use this for test-apps; define WOLFBOOT_MMODE_SMODE_BOOT for Linux.
      */
     wolfBoot_printf("M-mode direct jump to 0x%lx\n", (unsigned long)app_offset);
-    /* Diagnostics before jump */
+#ifdef DEBUG_BOOT
+    /* Verify UART TX is idle and check first two words of the image */
     {
         volatile uint8_t lsr = MMUART_LSR(DEBUG_UART_BASE);
         uint32_t *p = (uint32_t*)app_offset;
@@ -472,13 +482,23 @@ void do_boot(const uint32_t *app_offset)
         wolfBoot_printf("App[0]=0x%lx [1]=0x%lx\n",
                         (unsigned long)p[0], (unsigned long)p[1]);
     }
-    /* Extended drain: allow all diagnostic output to finish (~10ms at 40MHz) */
+    /* Drain UART TX FIFO before jumping.
+     * 400000 iters ≈ 10 ms at 40 MHz E51 reset clock (~10 cycles/iter). */
     {
         volatile int i;
         for (i = 0; i < 400000; i++) {}
     }
+#endif /* DEBUG_BOOT */
     (void)hartid;
     (void)dts_addr;
+    /* Synchronize I-cache/pipeline after ELF loading wrote new instructions.
+     * fence ensures all stores are committed; fence.i ensures the instruction
+     * fetch unit sees the new code. Required even on E51 (no I-cache) because
+     * the store buffer may not have drained.
+     * Note: -march=rv64imac does not define __riscv_zifencei, so
+     * riscv_icache_sync() in elf.c is a no-op. We emit fence.i manually. */
+    asm volatile("fence" ::: "memory");
+    asm volatile(".word 0x0000100f" ::: "memory"); /* fence.i */
     asm volatile("jr %0" : : "r"(app_offset));
     __builtin_unreachable();
 #endif /* WOLFBOOT_MMODE_SMODE_BOOT */

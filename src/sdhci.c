@@ -1466,14 +1466,15 @@ int sdhci_init(void)
         status = sdhci_set_timeout(SDHCI_DATA_TIMEOUT_US);
     }
 
-    wolfBoot_printf("sdhci_init: %s status: %d\n",
-    #ifdef DISK_EMMC
-        "eMMC"
-    #else
-        "SD"
-    #endif
-        , status
-    );
+    {
+        const char *card_type;
+#ifdef DISK_EMMC
+        card_type = "eMMC";
+#else
+        card_type = "SD";
+#endif
+        wolfBoot_printf("sdhci_init: %s status: %d\n", card_type, status);
+    }
 
     return status;
 }

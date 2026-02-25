@@ -116,12 +116,13 @@ static void mpfs_config_l2_cache(void)
 }
 
 /* Microsecond delay using busy loop.
- * MTIME counter is not running in bare-metal M-mode (no HSS),
- * so use a calibrated loop at ~40 MHz reset clock. */
-static void udelay(uint32_t us)
+ * MTIME counter is not running in bare-metal M-mode (no HSS), so use a
+ * calibrated loop. E51 runs at ~40 MHz on reset; with volatile load/store
+ * overhead each iteration is ~10 cycles → 4 iterations per microsecond.
+ * noinline prevents the compiler from collapsing the loop at call sites. */
+static __attribute__((noinline)) void udelay(uint32_t us)
 {
     volatile uint32_t i;
-    /* ~10 cycles per iteration at -O2, 40 MHz = 4 iterations per us */
     for (i = 0; i < us * 4; i++)
         ;
 }
@@ -1644,47 +1645,4 @@ void uart_write_hart(unsigned long hartid, const char* buf, unsigned int sz)
     }
 }
 
-/**
- * uart_printf_hart - Simple printf to a specific hart's UART
- * Only supports %d, %x, %s, %lu formats for minimal footprint
- */
-static void uart_printf_hart(unsigned long hartid, const char* fmt, ...)
-{
-    char buf[128];
-    int len = 0;
-    const char* p = fmt;
-
-    /* Very simple printf implementation */
-    while (*p && len < (int)sizeof(buf) - 1) {
-        if (*p == '%') {
-            p++;
-            if (*p == 'l' && *(p+1) == 'u') {
-                /* %lu - unsigned long */
-                p += 2;
-                /* Skip for now - just print placeholder */
-                buf[len++] = '[';
-                buf[len++] = 'N';
-                buf[len++] = ']';
-            } else if (*p == 'd') {
-                p++;
-                buf[len++] = '[';
-                buf[len++] = 'N';
-                buf[len++] = ']';
-            } else if (*p == 's') {
-                p++;
-                buf[len++] = '[';
-                buf[len++] = 'S';
-                buf[len++] = ']';
-            } else {
-                buf[len++] = '%';
-                buf[len++] = *p++;
-            }
-        } else {
-            buf[len++] = *p++;
-        }
-    }
-    buf[len] = '\0';
-
-    uart_write_hart(hartid, buf, len);
-}
 #endif /* WOLFBOOT_RISCV_MMODE */
