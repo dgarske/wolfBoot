@@ -42,31 +42,6 @@ void __attribute__((naked,section(".init"))) _reset(void) {
     asm volatile("la gp, _global_pointer");
     asm volatile("la sp, _end_stack");
 
-    /* Direct UART diagnostic: write "!\r\n" to confirm test-app is running.
-     * MPFS MMUART: THR at offset 0x100, LSR at offset 0x14, THRE = bit 5. */
-    asm volatile(
-        "li a0, 0x20000000\n"    /* UART0 base */
-        /* write '!' */
-        "1: lbu a1, 0x14(a0)\n"  /* read LSR */
-        "andi a1, a1, 0x20\n"    /* check THRE (bit 5) */
-        "beqz a1, 1b\n"
-        "li a2, 0x21\n"          /* '!' */
-        "sb a2, 0x100(a0)\n"     /* write to THR */
-        /* write '\r' */
-        "2: lbu a1, 0x14(a0)\n"
-        "andi a1, a1, 0x20\n"
-        "beqz a1, 2b\n"
-        "li a2, 0x0d\n"          /* '\r' */
-        "sb a2, 0x100(a0)\n"
-        /* write '\n' */
-        "3: lbu a1, 0x14(a0)\n"
-        "andi a1, a1, 0x20\n"
-        "beqz a1, 3b\n"
-        "li a2, 0x0a\n"          /* '\n' */
-        "sb a2, 0x100(a0)\n"
-        ::: "a0", "a1", "a2"
-    );
-
     /* Set up M-mode vectored interrupt table.
      * wolfBoot M-mode does a direct jr (no enter_smode), so payload runs in M-mode.
      * Use mtvec. The +1 sets MODE=1 (vectored). */

@@ -27,15 +27,26 @@
 
 /* PolarFire SoC MPFS250T board specific configuration */
 
-/* APB/AHB Clock Frequency
- * M-mode (out of reset): 40 MHz
- * S-mode (after HSS): 150 MHz
+/* APB/AHB Peripheral Bus Clock Frequency (used for UART baud rate divisor)
+ * M-mode (out of reset, no PLL): 40 MHz
+ * S-mode (after HSS configures PLL): 150 MHz
  */
 #ifndef MSS_APB_AHB_CLK
     #ifdef WOLFBOOT_RISCV_MMODE
         #define MSS_APB_AHB_CLK    40000000
     #else
         #define MSS_APB_AHB_CLK    150000000
+    #endif
+#endif
+
+/* CPU Core Clock Frequency (used for mcycle-based benchmarking)
+ * The E51 core runs at 2x the APB bus clock on reset.
+ * After HSS configures the PLL, CPU runs at 600 MHz. */
+#ifndef MSS_CPU_CLK
+    #ifdef WOLFBOOT_RISCV_MMODE
+        #define MSS_CPU_CLK         (MSS_APB_AHB_CLK * 2)
+    #else
+        #define MSS_CPU_CLK         600000000
     #endif
 #endif
 
@@ -326,6 +337,14 @@ int mpfs_read_serial_number(uint8_t *serial);
 
 /* RTC Clock Frequency (1 MHz after divisor) */
 #define RTC_CLOCK_FREQ              1000000UL
+
+/* Timer frequency for hal_get_timer_us().
+ * In M-mode: CLINT MTIME is not running without HSS, so hal_get_timer()
+ * reads mcycle (CPU cycle counter) instead. Set frequency to CPU clock.
+ * In S-mode: MTIME runs at 1 MHz (default RISCV_SMODE_TIMER_FREQ). */
+#if defined(WOLFBOOT_RISCV_MMODE) && !defined(RISCV_SMODE_TIMER_FREQ)
+#define RISCV_SMODE_TIMER_FREQ      MSS_CPU_CLK
+#endif
 
 
 /* ============================================================================

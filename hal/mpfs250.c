@@ -117,13 +117,14 @@ static void mpfs_config_l2_cache(void)
 
 /* Microsecond delay using busy loop.
  * MTIME counter is not running in bare-metal M-mode (no HSS), so use a
- * calibrated loop. E51 runs at ~40 MHz on reset; with volatile load/store
- * overhead each iteration is ~10 cycles → 4 iterations per microsecond.
+ * calibrated loop. E51 CPU core runs at 80 MHz on reset (2x the 40 MHz APB
+ * bus clock); with volatile load/store overhead each iteration is ~10 cycles
+ * → 8 iterations per microsecond.
  * noinline prevents the compiler from collapsing the loop at call sites. */
 static __attribute__((noinline)) void udelay(uint32_t us)
 {
     volatile uint32_t i;
-    for (i = 0; i < us * 4; i++)
+    for (i = 0; i < us * 8; i++)
         ;
 }
 

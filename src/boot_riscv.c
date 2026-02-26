@@ -207,8 +207,14 @@ unsigned long WEAKFUNCTION handle_trap(unsigned long cause, unsigned long epc,
 
 uint64_t hal_get_timer(void)
 {
-#if __riscv_xlen == 64
-    /* For RV64, CSR time contains full 64-bit value */
+#ifdef WOLFBOOT_RISCV_MMODE
+    /* In M-mode, use mcycle (CPU cycle counter) instead of rdtime/CLINT MTIME.
+     * rdtime CSR causes illegal instruction on E51 in bare-metal M-mode, and
+     * CLINT MTIME is not running without HSS. mcycle always increments at the
+     * CPU clock rate (MSS_APB_AHB_CLK). */
+    return csr_read(mcycle);
+#elif __riscv_xlen == 64
+    /* For RV64 S-mode, CSR time contains full 64-bit value */
     return csr_read(time);
 #else
     /* For RV32, read both timeh and time with wrap-around protection */
