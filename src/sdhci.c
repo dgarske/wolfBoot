@@ -368,7 +368,7 @@ static uint32_t sdhci_set_clock(uint32_t clock_khz)
     reg = SDHCI_REG(SDHCI_SRS11);
     reg &= ~(SDHCI_SRS11_SDCFSL_MASK | SDHCI_SRS11_SDCFSH_MASK);
     reg |= (((mclk & 0x0FF) << SDHCI_SRS11_SDCFSL_SHIFT) & SDHCI_SRS11_SDCFSL_MASK);  /* lower 8 bits */
-    reg |= (((mclk & 0x300) << SDHCI_SRS11_SDCFSH_SHIFT) & SDHCI_SRS11_SDCFSH_SHIFT); /* upper 2 bits */
+    reg |= (((mclk & 0x300) << SDHCI_SRS11_SDCFSH_SHIFT) & SDHCI_SRS11_SDCFSH_MASK); /* upper 2 bits */
     reg |= SDHCI_SRS11_ICE; /* clock enable */
     reg &= ~SDHCI_SRS11_CGS; /* select clock */
     SDHCI_REG_SET(SDHCI_SRS11, reg);
