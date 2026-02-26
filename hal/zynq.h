@@ -400,6 +400,19 @@
 #define QSPI_REF_CTRL_DIVISOR1_MASK (0x3F << 16)
 #define QSPI_REF_CTRL_DIVISOR1(n)   (((n) << 16) & QSPI_REF_CTRL_DIVISOR0_MASK)
 
+/* SD/SDHCI Controller Base Addresses */
+#define ZYNQMP_SD0_BASE     0xFF160000UL
+#define ZYNQMP_SD1_BASE     0xFF170000UL
+
+/* SD/SDIO Reference Clock Control (CRL_APB) */
+#define SDIO0_REF_CTRL      (*((volatile uint32_t*)(CRL_APB_BASE + 0x6C)))
+#define SDIO1_REF_CTRL      (*((volatile uint32_t*)(CRL_APB_BASE + 0x70)))
+
+/* SD/SDIO Reset Control (CRL_APB RST_LPD_IOU2) */
+#define RST_LPD_IOU2        (*((volatile uint32_t*)(CRL_APB_BASE + 0x0238)))
+#define RST_LPD_IOU2_SDIO0  (1UL << 5)
+#define RST_LPD_IOU2_SDIO1  (1UL << 6)
+
 
 /* Configuration Security Unit (CSU) */
 /* Triple-Dedundant MicroBlaze processor */

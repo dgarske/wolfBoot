@@ -1563,7 +1563,9 @@ void hal_init(void)
     wolfBoot_printf(bootMsg);
     wolfBoot_printf("Current EL: %d\n", current_el());
 
+#ifdef EXT_FLASH
     qspi_init();
+#endif
 
     pmuVer = pmu_get_version();
     wolfBoot_printf("PMUFW Ver: %d.%d\n",
@@ -1581,7 +1583,7 @@ void hal_init(void)
 
 void hal_prepare_boot(void)
 {
-#if GQPI_USE_4BYTE_ADDR == 1
+#if defined(EXT_FLASH) && GQPI_USE_4BYTE_ADDR == 1
     /* Exit 4-byte address mode */
     int ret = qspi_exit_4byte_addr(&mDev);
     if (ret != GQSPI_CODE_SUCCESS)
@@ -1779,7 +1781,13 @@ void RAMFUNCTION ext_flash_unlock(void)
 #ifdef MMU
 void* hal_get_dts_address(void)
 {
+#ifdef WOLFBOOT_DTS_BOOT_ADDRESS
     return (void*)WOLFBOOT_DTS_BOOT_ADDRESS;
+#elif defined(WOLFBOOT_LOAD_DTS_ADDRESS)
+    return (void*)WOLFBOOT_LOAD_DTS_ADDRESS;
+#else
+    return NULL;
+#endif
 }
 
 int hal_dts_fixup(void* dts_addr)
@@ -1833,5 +1841,144 @@ static int test_ext_flash(QspiDev_t* dev)
     return ret;
 }
 #endif /* TEST_EXT_FLASH */
+
+
+/* ============================================================================
+ * SDHCI (SD Card / eMMC) Platform Support
+ * ============================================================================
+ * Platform-specific hooks for the generic SDHCI driver (src/sdhci.c).
+ * ZynqMP uses the Arasan SDHCI controller with standard register layout.
+ * The generic driver uses Cadence SD4HC register offsets, so we translate:
+ *   - HRS registers at 0x000-0x01F (Cadence-specific: reset, PHY, eMMC mode)
+ *   - SRS registers at 0x200-0x2FF (standard SDHCI mapped at offset +0x200)
+ * Arasan uses standard SDHCI registers at 0x000-0x0FF (no 0x200 offset).
+ */
+#if defined(DISK_SDCARD) || defined(DISK_EMMC)
+#include "sdhci.h"
+
+/* SD controller base address selection:
+ *   SD0 (ZYNQMP_SD0_BASE = 0xFF160000) - internal, typically eMMC
+ *   SD1 (ZYNQMP_SD1_BASE = 0xFF170000) - external SD card slot on ZCU102
+ */
+#ifndef ZYNQMP_SDHCI_BASE
+#define ZYNQMP_SDHCI_BASE  ZYNQMP_SD1_BASE
+#endif
+
+#define CADENCE_SRS_OFFSET      0x200
+
+/* Standard SDHCI Software Reset is in the Clock/Timeout/Reset register */
+#define STD_SDHCI_RESET_REG     0x2C  /* Clock Control / Timeout / SW Reset */
+#define STD_SDHCI_SRA           (1U << 24) /* Software Reset for All */
+
+/* Handle reads from Cadence HRS registers (0x000-0x1FF) */
+static uint32_t zynqmp_sdhci_hrs_read(uint32_t hrs_offset)
+{
+    volatile uint8_t *base = (volatile uint8_t *)ZYNQMP_SDHCI_BASE;
+
+    switch (hrs_offset) {
+    case 0x000: /* HRS00 - Software Reset */
+    {
+        /* Map standard SRA (bit 24 of 0x2C) to Cadence SWR (bit 0) */
+        uint32_t val = *((volatile uint32_t *)(base + STD_SDHCI_RESET_REG));
+        return (val & STD_SDHCI_SRA) ? 1U : 0U;
+    }
+    case 0x010: /* HRS04 - PHY access (Cadence-specific) */
+        /* Return ACK set to prevent wait loops from hanging */
+        return (1U << 26); /* SDHCI_HRS04_UIS_ACK */
+    default:
+        /* HRS01 (debounce), HRS02, HRS06 (eMMC mode) - not applicable */
+        return 0;
+    }
+}
+
+/* Handle writes to Cadence HRS registers (0x000-0x1FF) */
+static void zynqmp_sdhci_hrs_write(uint32_t hrs_offset, uint32_t val)
+{
+    volatile uint8_t *base = (volatile uint8_t *)ZYNQMP_SDHCI_BASE;
+
+    switch (hrs_offset) {
+    case 0x000: /* HRS00 - Software Reset */
+        if (val & 1U) { /* SWR bit -> standard SRA */
+            uint32_t reg = *((volatile uint32_t *)(base + STD_SDHCI_RESET_REG));
+            reg |= STD_SDHCI_SRA;
+            *((volatile uint32_t *)(base + STD_SDHCI_RESET_REG)) = reg;
+        }
+        break;
+    default:
+        /* HRS01, HRS04, HRS06 - not applicable on ZynqMP, ignore */
+        break;
+    }
+}
+
+/* Register access functions for generic SDHCI driver.
+ * Translates Cadence SD4HC register offsets to standard Arasan SDHCI layout. */
+uint32_t sdhci_reg_read(uint32_t offset)
+{
+    volatile uint8_t *base = (volatile uint8_t *)ZYNQMP_SDHCI_BASE;
+
+    /* Cadence SRS registers (0x200+) -> standard SDHCI (subtract 0x200) */
+    if (offset >= CADENCE_SRS_OFFSET) {
+        return *((volatile uint32_t *)(base + offset - CADENCE_SRS_OFFSET));
+    }
+    /* Cadence HRS registers (0x000-0x1FF) -> translate to standard equivalents */
+    return zynqmp_sdhci_hrs_read(offset);
+}
+
+void sdhci_reg_write(uint32_t offset, uint32_t val)
+{
+    volatile uint8_t *base = (volatile uint8_t *)ZYNQMP_SDHCI_BASE;
+
+    /* Cadence SRS registers (0x200+) -> standard SDHCI (subtract 0x200) */
+    if (offset >= CADENCE_SRS_OFFSET) {
+        *((volatile uint32_t *)(base + offset - CADENCE_SRS_OFFSET)) = val;
+        return;
+    }
+    /* Cadence HRS registers (0x000-0x1FF) -> translate to standard equivalents */
+    zynqmp_sdhci_hrs_write(offset, val);
+}
+
+/* Platform initialization - called from sdhci_init()
+ * FSBL already initializes the SD controller on ZynqMP when booting from SD,
+ * so we don't need to configure clocks/reset (CRL_APB registers).
+ * We verify the SDHCI controller is accessible via standard register reads. */
+void sdhci_platform_init(void)
+{
+#ifdef DEBUG_SDHCI
+    volatile uint8_t *base = (volatile uint8_t *)ZYNQMP_SDHCI_BASE;
+    uint32_t val;
+
+    wolfBoot_printf("sdhci_platform_init: SD1 at 0x%x\n",
+        (unsigned int)ZYNQMP_SDHCI_BASE);
+
+    /* Read standard SDHCI registers to verify controller access */
+    val = *((volatile uint32_t *)(base + 0x24));  /* Present State */
+    wolfBoot_printf("  Present State: 0x%x\n", (unsigned int)val);
+
+    val = *((volatile uint32_t *)(base + 0x40));  /* Capabilities */
+    wolfBoot_printf("  Capabilities:  0x%x\n", (unsigned int)val);
+    (void)val;
+#endif
+    /* FSBL already configured SD1 - no clock/reset setup needed */
+}
+
+/* Platform interrupt setup - called from sdhci_init()
+ * Using polling mode for simplicity - no GIC setup needed */
+void sdhci_platform_irq_init(void)
+{
+#ifdef DEBUG_SDHCI
+    wolfBoot_printf("sdhci_platform_irq_init: Using polling mode\n");
+#endif
+}
+
+/* Platform bus mode selection - called from sdhci_init() */
+void sdhci_platform_set_bus_mode(int is_emmc)
+{
+    (void)is_emmc;
+#ifdef DEBUG_SDHCI
+    wolfBoot_printf("sdhci_platform_set_bus_mode: is_emmc=%d\n", is_emmc);
+#endif
+}
+#endif /* DISK_SDCARD || DISK_EMMC */
+
 
 #endif /* TARGET_zynq */
