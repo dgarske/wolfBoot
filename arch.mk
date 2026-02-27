@@ -78,6 +78,11 @@ ifeq ($(ARCH),AARCH64)
       HASH_HAL=1
       CFLAGS+=-DWOLFBOOT_ZYNQMP_CSU
     endif
+
+    # SD card boot uses different DDR load address than QSPI
+    ifeq ($(DISK_SDCARD),1)
+      LSCRIPT_IN=hal/zynq_sd.ld
+    endif
   endif
 
   ifeq ($(TARGET),versal)

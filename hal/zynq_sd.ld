@@ -1,4 +1,4 @@
-/* Linker Script for Zynq MP */
+/* Linker Script for Zynq MP - SD Card Boot */
 
 /* Stack increased to 64KB for RSA 4096-bit */
 _STACK_SIZE = DEFINED(_STACK_SIZE) ? _STACK_SIZE : 0x10000;
@@ -12,11 +12,11 @@ _EL2_STACK_SIZE = DEFINED(_EL2_STACK_SIZE) ? _EL2_STACK_SIZE : 1024;
 MEMORY
 {
    /* psu_ddr_0_MEM_0 : ORIGIN = 0x0, LENGTH = 0x80000000 */
-   /* wolfBoot DDR location for QSPI boot (2MB reserved):
-    *   Loaded by FSBL to end of DDR0
-    *   For SD card boot see zynq_sd.ld
+   /* wolfBoot DDR location for SD card boot (2MB reserved):
+    *   Loaded by BL31 to same address as U-Boot
+    *   For QSPI boot see zynq.ld
     */
-   psu_ddr_0_MEM_0 : ORIGIN = 0x7FF00000, LENGTH = 0x200000
+   psu_ddr_0_MEM_0 : ORIGIN = 0x8000000, LENGTH = 0x200000
    psu_ddr_1_MEM_0 : ORIGIN = 0x800000000, LENGTH = 0x80000000
    psu_ocm_ram_0_MEM_0 : ORIGIN = 0xFFFC0000, LENGTH = 0x40000
    psu_qspi_linear_0_MEM_0 : ORIGIN = 0xC0000000, LENGTH = 0x20000000

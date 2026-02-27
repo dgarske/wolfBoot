@@ -1563,7 +1563,7 @@ void hal_init(void)
     wolfBoot_printf(bootMsg);
     wolfBoot_printf("Current EL: %d\n", current_el());
 
-#ifdef EXT_FLASH
+#if defined(EXT_FLASH) && (EXT_FLASH == 1)
     qspi_init();
 #endif
 
@@ -1583,7 +1583,7 @@ void hal_init(void)
 
 void hal_prepare_boot(void)
 {
-#if defined(EXT_FLASH) && GQPI_USE_4BYTE_ADDR == 1
+#if defined(EXT_FLASH) && (EXT_FLASH == 1) && GQPI_USE_4BYTE_ADDR == 1
     /* Exit 4-byte address mode */
     int ret = qspi_exit_4byte_addr(&mDev);
     if (ret != GQSPI_CODE_SUCCESS)
@@ -1947,7 +1947,8 @@ void sdhci_platform_init(void)
     volatile uint8_t *base = (volatile uint8_t *)ZYNQMP_SDHCI_BASE;
     uint32_t val;
 
-    wolfBoot_printf("sdhci_platform_init: SD1 at 0x%x\n",
+    wolfBoot_printf("sdhci_platform_init: SD%d at 0x%x\n",
+        (ZYNQMP_SDHCI_BASE == ZYNQMP_SD0_BASE) ? 0 : 1,
         (unsigned int)ZYNQMP_SDHCI_BASE);
 
     /* Read standard SDHCI registers to verify controller access */

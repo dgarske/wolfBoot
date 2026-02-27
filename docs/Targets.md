@@ -1984,7 +1984,7 @@ qemu-system-aarch64 -M raspi3b -m 1024 -serial stdio -kernel wolfboot_linux_rasp
 
 ## Xilinx Zynq UltraScale
 
-AMD Zynq UltraScale+ MPSoC ZCU102 Evaluation Kit - Dual ARM Cortex-A53.
+AMD Zynq UltraScale+ MPSoC ZCU102 Evaluation Kit - Quad-core ARM Cortex-A53 (plus dual Cortex-R5).
 
 wolfBoot replaces U-Boot in the ZynqMP boot flow:
 ```
