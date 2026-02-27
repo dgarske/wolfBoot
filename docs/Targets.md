@@ -3065,15 +3065,143 @@ Flash factory_custom.bin to NOR base 0xEC00_0000
 
 The NXP QorIQ T2080 is a PPC e6500 based processor (four cores). Support has been tested with the NAII 68PPC2.
 
-Example configurations for this target are provided in:
-* NXP T2080: [/config/examples/nxp-t2080.config](/config/examples/nxp-t2080.config).
-* NAII 68PPC2: [/config/examples/nxp-t2080-68ppc2.config](/config/examples/nxp-t2080-68ppc2.config).
+Example configuration: [/config/examples/nxp-t2080.config](/config/examples/nxp-t2080.config).
+Stock layout is default; for NAII 68PPC2, uncomment the "# NAII 68PPC2:" lines and comment the stock lines.
 
 ### Design NXP T2080 PPC
 
 The QorIQ requires a Reset Configuration Word (RCW) to define the boot parameters, which resides at the start of the flash (0xE8000000).
 
 The flash boot entry point is `0xEFFFFFFC`, which is an offset jump to wolfBoot initialization boot code. Initially the PowerPC core enables only a 4KB region to execute from. The initialization code (`src/boot_ppc_start.S`) sets the required CCSR and TLB for memory addressing and jumps to wolfBoot `main()`.
+
+#### Boot Sequence and Cache Architecture
+
+The T2080 e6500 boot sequence has several hardware-specific constraints that
+differ from other QorIQ parts. Understanding the cache hierarchy and memory
+path is critical for reliable cold power-on boot.
+
+**Memory Hierarchy (Core to External):**
+
+```
+CPU Core → L1 Cache (32KB I + 32KB D) → L2 Cluster Cache (256KB per cluster)
+         → CoreNet Fabric → CPC (2MB, configurable as SRAM or L3 cache)
+         → DDR Controller → DDR SDRAM
+         → IFC Controller → NOR Flash
+```
+
+**Cold Boot Initial Stack: L1 Locked Data Cache**
+
+On cold power cycle, the CoreNet Platform Cache (CPC) configured as SRAM is
+unreliable for store operations. The CPC SRAM is accessed through the CoreNet
+interconnect fabric: `Core → L1 → L2 → CoreNet → CPC`. When the L1 data
+cache evicts dirty cache lines to CPC SRAM during cold power-on, the CoreNet
+bus transaction generates a bus error resulting in a machine check exception.
+With `MSR[ME]=0` (the default at reset), this causes a CPU checkstop (silent
+hang). This was confirmed by inserting a `sync` instruction after stack
+stores — the `sync` forces the L1 store buffer to drain through CoreNet to
+CPC SRAM, and the hang moved to the `sync` instruction, proving the bus error.
+
+The `stwu` (store word with update) instructions used to build the initial
+stack frame appeared to work because the stores remained in the L1 data cache
+write buffer and were never committed to CPC SRAM. The hang manifested later
+when L1 cache pressure caused eviction of the stack cache lines to CPC SRAM.
+
+**Solution:** Use L1 locked data cache as the initial 16KB stack (matching the
+U-Boot approach). The `dcbz` instruction allocates a cache line and fills it
+with zeros without generating a bus read (the data is CPU-generated). The
+`dcbtls` instruction locks the cache line so it is never evicted. With
+`WIMGE=0` (cacheable, non-coherent) in the TLB entry, `dcbz` does not
+generate any CoreNet coherency transaction. The locked cache lines are
+entirely core-local — no external bus access occurs.
+
+The implementation in `boot_ppc_start.S`:
+
+1. L1 I-cache and D-cache are enabled (`icache_enable`, `dcache_enable`)
+2. Four 4KB TLB0 entries are created for `L1_CACHE_ADDR` (0xF8E00000), a
+   virtual address with no backing physical memory
+3. A `dcbz` + `dcbtls` loop allocates and locks 256 cache lines
+   (16KB = half of the 32KB L1 D-cache) at that address
+4. On e6500, `dcbtls 2` (L2 lock) is issued before `dcbtls 0` (L1 lock)
+   to lock in both cache levels
+5. The stack pointer is set to `L1_CACHE_ADDR + 0x4000 - 64` (top of the
+   16KB locked region minus the ABI-required initial frame)
+6. All `stwu` stores to build the stack frame hit L1 locked cache —
+   no CoreNet, no CPC SRAM, no bus error
+
+The CPC SRAM hardware (LAW, TLB, CPC enable) is still configured during early
+assembly, but is not used for the stack. After DDR is initialized in C code
+(`hal_init()`), the stack is relocated to DDR, and the CPC is reconfigured
+from SRAM mode to full L3 cache mode.
+
+Configuration in `hal/nxp_ppc.h`:
+
+```c
+#define L1_CACHE_ADDR (0xF8E00000UL)  /* L1 locked dcache, no backing memory */
+#define L2SRAM_ADDR   (0xF8F00000UL)  /* CPC as SRAM (deferred to C code) */
+```
+
+**Flash TLB: Write-Through + Guarded (W|G)**
+
+The flash TLB entry uses `MAS2_W | MAS2_G` (Write-Through + Guarded):
+- **Write-Through (W):** Allows the L1 I-cache to cache flash instruction
+  fetches during XIP boot, significantly improving performance over
+  Cache-Inhibited (`MAS2_I`) which forces every instruction fetch through the
+  IFC to flash.
+- **Guarded (G):** Prevents speculative prefetch to the IFC controller, which
+  could interfere with flash command sequences.
+
+After DDR stack relocation, C code switches the flash TLB to `MAS2_I | MAS2_G`
+for flash write/erase operations (when the flash bank enters command mode), or
+to `MAS2_M` for full caching after operations complete.
+
+**MSR Configuration**
+
+The initial MSR at reset is 0. The assembly startup sets `MSR[DE]` (Debug
+Enable) early for JTAG debugging. After the stack is established, MSR is set to:
+- `MSR[CE]` — Critical interrupt enable
+- `MSR[ME]` — Machine check enable (exceptions instead of checkstop)
+- `MSR[DE]` — Debug enable
+- `MSR[RI]` — Recoverable interrupt (allows clean exception recovery)
+
+**Branch Prediction**
+
+Branch prediction (BUCSR) is disabled during assembly startup and enabled
+after DDR stack relocation in `hal_init()`. This matches the reference
+implementation and avoids potential branch predictor issues during the
+transition from L1 locked cache to DDR stack.
+
+**e6500 64-bit GPR Considerations**
+
+The e6500 core has 64-bit General Purpose Registers even in 32-bit mode.
+The `lis` (Load Immediate Shifted) instruction sign-extends the 16-bit
+immediate to 64 bits. For addresses with bit 31 set (>= 0x80000000), such
+as flash addresses in the 0xEFxxxxxx range, `lis` produces incorrect
+64-bit values (e.g., `lis r3, 0xEFFE` → `0xFFFFFFFF_EFFE0000`). This causes
+TLB misses on `blr` (branch to link register) because the CPU uses all 64
+bits for the effective address.
+
+The `LOAD_ADDR32` macro avoids this: `li reg, 0` (clears all 64 bits) followed
+by `oris` and `ori` to set only the lower 32 bits. This is used for all
+address loads in the assembly startup, including the `boot_entry_C` branch
+target, `RESET_VECTOR`, TLB EPN/RPN values, and CCSRBAR addresses.
+
+**UART Debug Checkpoints**
+
+With `DEBUG_UART=1`, the assembly startup emits single-character checkpoints
+to UART0 (0xFE11C500, 115200 baud). The `uart_putc_debug` macro
+saves/restores r5 and r6 via SPRG4/SPRG5 (SPR 276/277) to avoid clobbering
+registers during the critical L2 and CPC initialization sequences.
+
+```
+1 - CPC invalidate start       A - L2 cluster enable start
+2 - CPC invalidate done        B - L2 cluster enabled
+3 - CPC SRAM configured        E - L1 cache setup
+4 - SRAM LAW configured        F - L1 I-cache enabled
+5 - Flash TLB configured       G - L1 D-cache enabled
+6 - CCSRBAR TLB configured     D - Stack ready (L1 locked cache)
+7 - SRAM TLB configured        Z - About to jump to C code
+8 - CPC enabled
+```
 
 RM 4.3.3 Boot Space Translation
 
@@ -3084,9 +3212,10 @@ RM 4.3.3 Boot Space Translation
 By default wolfBoot will use `powerpc-linux-gnu-` cross-compiler prefix. These tools can be installed with the Debian package `gcc-powerpc-linux-gnu` (`sudo apt install gcc-powerpc-linux-gnu`).
 
 The `make` creates a `factory.bin` image that can be programmed at `0xE8080000`
+(For NAII 68PPC2, first edit `nxp-t2080.config` to uncomment the NAII 68PPC2 lines.)
 
 ```
-cp ./config/examples/nxp-t2080-68ppc2.config .config
+cp ./config/examples/nxp-t2080.config .config
 make clean
 make keytools
 make
@@ -3129,27 +3258,32 @@ Flash Layout (with files):
 
 Or program the `factory.bin` to `0xE8080000`
 
-Example Boot Debug Output:
+Example Boot Debug Output (with `DEBUG_UART=1`):
 
 ```
-wolfBoot Init
-Part: Active 0, Address E8080000
-Image size 1028
-Firmware Valid
-Loading 1028 bytes to RAM at 19000
-Failed parsing DTB to load.
-Booting at 19000
-Test App
-
-0x00000001
-0x00000002
-0x00000003
-0x00000004
-0x00000005
-0x00000006
-0x00000007
+12345678ABEFGDZIJQRSKwolfBoot Init
+Build: Feb 27 2026 12:27:15
+IFC CSPR0: 0x141 (WP set)
+DDR Test: PASSED
+Ramcode: copied 5584 bytes to DDR, TLB9 remapped
+CPC: Released SRAM, full 2MB L2 cache enabled
+Flash: caching enabled (L1+L2+CPC)
+MP: Starting cores (boot page 0x7FFFF000, spin table 0x7FFFE100)
+Internal flash test at 0xEFFA0000
+WP clear: CSPR0=0x101 (OK)
+PPB: sector 1021 protected (0x723A), erasing all PPBs
+PPB: erase complete
+Erasing sector 1021...
+Erase sector 1021: OK
 ...
+Firmware Valid
+Booting at 0x19000
+Test App
 ```
+
+The `12345678ABEFGDZIJQRSK` prefix is the assembly startup checkpoint
+sequence (see UART Debug Checkpoints above). Without `DEBUG_UART=1`, only
+the C-level output starting from `wolfBoot Init` is shown.
 
 #### Flash Programming with Lauterbach
 
