@@ -63,11 +63,11 @@ _reset:
      * 5. Handle multi-hart (E51 runs, U54s park in WFI)
      * ======================================================================== */
 
-#if 0 //def TARGET_mpfs250
-    /*
-     * Early UART initialization for M-mode boot on MPFS.
-     * This enables debug output during the boot sequence.
-     */
+    /* Early UART initialization for M-mode boot on MPFS.
+     * Intentionally disabled: only needed for low-level bring-up debug
+     * to enable serial output before C runtime is available.
+     * To re-enable, change the guard to `#ifdef TARGET_mpfs250`. */
+#if 0
     li    t0, 0x20000000           /* UART0 base */
     li    t1, 0x20002000           /* SYSREG_BASE */
     /* Enable UART0 clock */

@@ -419,7 +419,7 @@ void do_boot(const uint32_t *app_offset)
 #endif
 #ifdef MMU
     unsigned long dts_addr;
-#else
+#elif __riscv_xlen == 64
     unsigned long dts_addr = 0;
 #endif
 

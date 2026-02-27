@@ -563,7 +563,10 @@ endif
 ## RISCV (32-bit)
 ifeq ($(ARCH),RISCV)
   CROSS_COMPILE?=riscv32-unknown-elf-
-  ARCH_FLAGS=-march=rv32imac -mabi=ilp32 -mcmodel=medany
+  # GCC 12+ requires explicit zicsr/zifencei extensions
+  RISCV32_ZICSR := $(shell echo "" | $(CC) -march=rv32imac_zicsr -x c -c - -o /dev/null 2>/dev/null && echo _zicsr)
+  RISCV32_ZIFENCEI := $(shell echo "" | $(CC) -march=rv32imac_zifencei -x c -c - -o /dev/null 2>/dev/null && echo _zifencei)
+  ARCH_FLAGS=-march=rv32imac$(RISCV32_ZICSR)$(RISCV32_ZIFENCEI) -mabi=ilp32 -mcmodel=medany
   CFLAGS+=-fno-builtin-printf -DUSE_M_TIME -g -nostartfiles -DARCH_RISCV
   CFLAGS+=$(ARCH_FLAGS)
   LDFLAGS+=$(ARCH_FLAGS)
@@ -605,12 +608,17 @@ ifeq ($(ARCH),RISCV64)
     UPDATE_OBJS?=src/update_ram.o
   endif
 
+  # GCC 12+ / binutils 2.38+ split CSR and fence.i instructions into
+  # separate extensions (zicsr, zifencei). Detect and add if supported.
+  RISCV64_ZICSR := $(shell echo "" | $(CC) -march=rv64imac_zicsr -x c -c - -o /dev/null 2>/dev/null && echo _zicsr)
+  RISCV64_ZIFENCEI := $(shell echo "" | $(CC) -march=rv64imac_zifencei -x c -c - -o /dev/null 2>/dev/null && echo _zifencei)
+
   ifeq ($(RISCV_MMODE),1)
     # E51 core: rv64imac (no FPU, no crypto extensions)
-    ARCH_FLAGS=-march=rv64imac -mabi=lp64 -mcmodel=medany
+    ARCH_FLAGS=-march=rv64imac$(RISCV64_ZICSR)$(RISCV64_ZIFENCEI) -mabi=lp64 -mcmodel=medany
   else
     # U54 cores: rv64gc (with FPU)
-    ARCH_FLAGS=-march=rv64imafd -mabi=lp64d -mcmodel=medany
+    ARCH_FLAGS=-march=rv64imafd$(RISCV64_ZICSR)$(RISCV64_ZIFENCEI) -mabi=lp64d -mcmodel=medany
 
     # FDT support required
     CFLAGS+=-DWOLFBOOT_FDT
