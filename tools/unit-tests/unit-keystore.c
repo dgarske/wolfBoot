@@ -89,8 +89,14 @@
 }
 #endif
 
+#if defined(KEYSTORE_ANY)
+#if UNIT_PUBKEY_SIZE > KEYSTORE_PUBKEY_SIZE
+	#error Key algorithm mismatch. Remove old keys via 'make keysclean'
+#endif
+#else
 #if KEYSTORE_PUBKEY_SIZE != UNIT_PUBKEY_SIZE
 	#error Key algorithm mismatch. Remove old keys via 'make keysclean'
+#endif
 #endif
 
 #define NUM_PUBKEYS 1
