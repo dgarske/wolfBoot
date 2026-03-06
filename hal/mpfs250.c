@@ -222,7 +222,7 @@ int mpfs_read_serial_number(uint8_t *serial)
     SCBCTRL_REG(SERVICES_CR_OFFSET) = cmd;
 
     /* Wait for request bit to clear (command accepted) */
-    timeout = 10000;
+    timeout = MPFS_SCB_TIMEOUT;
     while ((SCBCTRL_REG(SERVICES_CR_OFFSET) & SERVICES_CR_REQ_MASK) && timeout > 0) {
         timeout--;
     }
@@ -232,7 +232,7 @@ int mpfs_read_serial_number(uint8_t *serial)
     }
 
     /* Wait for busy bit to clear (command completed) */
-    timeout = 10000;
+    timeout = MPFS_SCB_TIMEOUT;
     while (mpfs_scb_mailbox_busy() && timeout > 0) {
         timeout--;
     }

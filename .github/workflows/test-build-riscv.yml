@@ -87,16 +87,18 @@ jobs:
       - name: Download and install RISC-V toolchain (riscv32)
         if: ${{ inputs.arch == 'riscv' }}
         run: |
-          wget -q https://github.com/riscv-collab/riscv-gnu-toolchain/releases/latest/download/riscv32-elf-ubuntu-24.04-gcc.tar.xz
-          tar -xf riscv32-elf-ubuntu-24.04-gcc.tar.xz
+          wget -q https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.01.17/riscv32-elf-ubuntu-24.04-gcc-nightly-2025.01.17-nightly.tar.xz
+          tar -xf riscv32-elf-ubuntu-24.04-gcc-nightly-2025.01.17-nightly.tar.xz
           echo "$GITHUB_WORKSPACE/riscv/bin" >> $GITHUB_PATH
           $GITHUB_WORKSPACE/riscv/bin/riscv32-unknown-elf-gcc --version
 
-      - name: Install RISC-V toolchain (riscv64)
+      - name: Download and install RISC-V toolchain (riscv64)
         if: ${{ inputs.arch == 'riscv64' }}
         run: |
-          sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
-          riscv64-unknown-elf-gcc --version
+          wget -q https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.01.17/riscv64-elf-ubuntu-24.04-gcc-nightly-2025.01.17-nightly.tar.xz
+          tar -xf riscv64-elf-ubuntu-24.04-gcc-nightly-2025.01.17-nightly.tar.xz
+          echo "$GITHUB_WORKSPACE/riscv/bin" >> $GITHUB_PATH
+          $GITHUB_WORKSPACE/riscv/bin/riscv64-unknown-elf-gcc --version
 
       # ============================================================
       # Build wolfboot
