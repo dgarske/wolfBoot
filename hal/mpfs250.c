@@ -157,6 +157,10 @@ static void qspi_uart_program(void);
 void hal_init(void)
 {
 #ifdef WOLFBOOT_RISCV_MMODE
+    /* Disable E51 watchdog timer early to prevent reset during lengthy
+     * operations (SHA384 verification, QSPI flash reads) */
+    MSS_WDT_CONTROL(MSS_WDT_E51_BASE) &= ~MSS_WDT_CTRL_ENABLE;
+
     mpfs_config_l2_cache();
     mpfs_signal_main_hart_started();
 #endif

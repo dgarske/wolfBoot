@@ -25,9 +25,7 @@
 
 #include "image.h"
 #include "loader.h"
-#ifdef DEBUG_BOOT
 #include "printf.h"
-#endif
 
 /* Include platform-specific headers (may define PLIC_BASE) */
 #ifdef TARGET_mpfs250
@@ -142,14 +140,13 @@ unsigned long WEAKFUNCTION handle_trap(unsigned long cause, unsigned long epc,
     last_epc = epc;
     last_tval = tval;
 
-#ifdef DEBUG_BOOT
-    /* Debug: print trap info for synchronous exceptions (not interrupts) */
+    /* Always print and halt on synchronous exceptions to prevent
+     * infinite trap-mret loops that appear as silent hangs */
     if (!(cause & MCAUSE_INT)) {
         wolfBoot_printf("TRAP: cause=%lx epc=%lx tval=%lx\n", cause, epc,
             tval);
         while (1) ; /* halt to prevent infinite trap-mret loop */
     }
-#endif
 
 #ifdef PLIC_BASE
     /* Check if this is an interrupt (MSB set) */

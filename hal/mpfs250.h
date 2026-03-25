@@ -75,6 +75,18 @@
 #define MSS_PERIPH_MMUART4  (1U << 9)
 #define MSS_PERIPH_QSPI     (1U << 19)
 
+/* MSS Watchdog Timer (per-hart) */
+#define MSS_WDT_E51_BASE       0x20001000UL
+#define MSS_WDT_U54_1_BASE     0x20101000UL
+#define MSS_WDT_U54_2_BASE     0x20103000UL
+#define MSS_WDT_U54_3_BASE     0x20105000UL
+#define MSS_WDT_U54_4_BASE     0x20107000UL
+#define MSS_WDT_REFRESH(base)  (*(volatile uint32_t*)((base) + 0x00))
+#define MSS_WDT_CONTROL(base)  (*(volatile uint32_t*)((base) + 0x04))
+#define MSS_WDT_STATUS(base)   (*(volatile uint32_t*)((base) + 0x08))
+#define MSS_WDT_TIME(base)     (*(volatile uint32_t*)((base) + 0x0C))
+#define MSS_WDT_MVRP(base)     (*(volatile uint32_t*)((base) + 0x10))
+#define MSS_WDT_CTRL_ENABLE    (1U << 0)
 
 /* UART */
 #define MSS_UART0_LO_BASE  0x20000000UL

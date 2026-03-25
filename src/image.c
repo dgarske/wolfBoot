@@ -1118,6 +1118,10 @@ static int image_sha384(struct wolfBoot_image *img, uint8_t *hash)
             blksz = img->fw_size - position;
         wc_Sha384Update(&sha384_ctx, p, blksz);
         position += blksz;
+    #ifdef DEBUG_UART
+        if ((position % (WOLFBOOT_SHA_BLOCK_SIZE * 8)) == 0)
+            wolfBoot_printf(".");
+    #endif
     } while(position < img->fw_size);
 
     wc_Sha384Final(&sha384_ctx, hash);
