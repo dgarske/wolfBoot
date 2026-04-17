@@ -1,0 +1,253 @@
+; ------------------------------------------------------------------------------
+; @Title: NXP LS1028A wolfBoot Debug Script
+; @Description:
+;   Brings up the LS1028A, loads wolfBoot ELF symbols, and sets breakpoints
+;   for source-level debugging. wolfBoot runs from FlexSPI NOR flash and
+;   loads the application to OCRAM (NO_XIP mode).
+; @Chip: LS1028A
+; Based on demo scripts from Lauterbach
+; ------------------------------------------------------------------------------
+;
+; Board: NXP LS1028ARDB (Cortex-A72, ARMv8-A)
+;
+; Prerequisites:
+;   - wolfBoot must already be flashed to NOR (use ls1028a_flash.cmm)
+;   - wolfboot.elf must be built with debug symbols (DEBUG=1 recommended)
+;   - Connect Lauterbach Debug Cable/Combiprobe to DUT_JTAG using LA-3770
+;
+; wolfBoot Flash Layout:
+;   Offset     Address      Content
+;   0x00000    0x20000000   RCW
+;   0x20000    0x20020000   wolfboot.bin (WOLFBOOT_ORIGIN)
+;   0x40000    0x20040000   Boot partition (signed app)
+;   0x60000    0x20060000   Update partition
+;   0x80000    0x20080000   Swap sector
+;
+; Application load address: 0x18020100 (OCRAM)
+; FlexSPI memory window:    0x20000000
+; ------------------------------------------------------------------------------
+
+; Base directory for wolfBoot build output (adjust to match your build path)
+&basedir="."
+
+; FlexSPI controller base address
+&FLEXSPI_BASE=0x20c0000
+
+; ------------------------------------------------------------------------------
+; PART 1: System initialization with RCW override
+; ------------------------------------------------------------------------------
+
+PRINT "========================================"
+PRINT "wolfBoot LS1028A Debug Session"
+PRINT "========================================"
+PRINT ""
+
+IF !SYStem.Up()
+(
+  RESet
+  SYStem.RESet
+  SYStem.CPU LS1028A
+  SYStem.Option TRST OFF
+  SYStem.Option EnReset ON
+  SYStem.Option NoPRCRReset ON
+  Trace.DISable
+  SYStem.JtagClock 10MHz
+  CORE.ASSIGN 1.
+
+  ; Override the RCW to halt CPU before flash code executes.
+  ; BOOTLOC = OCRAM (0x150) so CPU does not jump to flash.
+  PRINT "Connecting with RCW override (OCRAM boot)..."
+  SYStem.Option EnReset ON
+  SYStem.Option HRCWOVerRide ON
+
+  SYStem.Mode.Prepare
+
+  ; RCW_SRC = Hardcoded
+  Data.Set EDBG:0x42001080 %Long 0x0
+
+  ; RCW register values for LS1028A
+  Data.Set EDBG:0x42001000 %Long 0x34003410
+  Data.Set EDBG:0x42001004 %Long 0x34343434
+  Data.Set EDBG:0x42001008 %Long 0x34343434
+  Data.Set EDBG:0x4200100c %Long 0x00343434
+  Data.Set EDBG:0x42001010 %Long 0x00000000
+  Data.Set EDBG:0x42001014 %Long 0x92890000
+  Data.Set EDBG:0x42001018 %Long 0x0030C804
+  Data.Set EDBG:0x4200101c %Long 0x00000000
+  ; BOOTLOC = OCRAM (0x150)
+  Data.Set EDBG:0x42001020 %Long 0x00000150
+  Data.Set EDBG:0x42001024 %Long 0x00002580
+  Data.Set EDBG:0x42001028 %Long 0x00000000
+  Data.Set EDBG:0x4200102c %Long 0x00000000
+  Data.Set EDBG:0x42001030 %Long 0x00000000
+  Data.Set EDBG:0x42001034 %Long 0x00000400
+  Data.Set EDBG:0x42001038 %Long 0x00000000
+  Data.Set EDBG:0x4200103c %Long 0x00000060
+  Data.Set EDBG:0x42001040 %Long 0x00000000
+  Data.Set EDBG:0x42001044 %Long 0x00000000
+  Data.Set EDBG:0x42001048 %Long 0x00000000
+  Data.Set EDBG:0x4200104c %Long 0x00000000
+  Data.Set EDBG:0x42001050 %Long 0x00000000
+  Data.Set EDBG:0x42001054 %Long 0x00000000
+  Data.Set EDBG:0x42001058 %Long 0x00000000
+  Data.Set EDBG:0x4200105c %Long 0x00000000
+  Data.Set EDBG:0x42001060 %Long 0x00000000
+  Data.Set EDBG:0x42001064 %Long 0x00000000
+  Data.Set EDBG:0x42001068 %Long 0x00026000
+  Data.Set EDBG:0x4200106c %Long 0x00000000
+  Data.Set EDBG:0x42001070 %Long 0x00000000
+  Data.Set EDBG:0x42001074 %Long 0x00000000
+  Data.Set EDBG:0x42001078 %Long 0x00000000
+  Data.Set EDBG:0x4200107c %Long 0x00000000
+
+  SYStem.Up
+  PRINT "  System up (halted in OCRAM)"
+)
+
+Register.Set M 0x5  ; EL1h
+
+; ------------------------------------------------------------------------------
+; PART 2: Configure FlexSPI for flash read access
+; ------------------------------------------------------------------------------
+
+PRINT "Configuring FlexSPI for flash access..."
+
+; Unlock FlexSPI
+Data.Set A:&FLEXSPI_BASE+0x018 %LE %Long 0x5AF05AF0
+Data.Set A:&FLEXSPI_BASE+0x01C %LE %Long 2
+
+; Controller init
+Data.Set A:&FLEXSPI_BASE+0x000 %LE %Long 0xFFFF8000
+Data.Set A:&FLEXSPI_BASE+0x004 %LE %Long 0xFFFFFFFF
+Data.Set A:&FLEXSPI_BASE+0x008 %LE %Long 0x200001F7
+Data.Set A:&FLEXSPI_BASE+0x00C %LE %Long 0x58
+Data.Set A:&FLEXSPI_BASE+0x020 %LE %Long 0x80000000
+Data.Set A:&FLEXSPI_BASE+0x024 %LE %Long 0x80000000
+Data.Set A:&FLEXSPI_BASE+0x028 %LE %Long 0x80000000
+
+; Flash size per die
+Data.Set A:&FLEXSPI_BASE+0x060 %LE %Long 0x40000
+Data.Set A:&FLEXSPI_BASE+0x064 %LE %Long 0x40000
+Data.Set A:&FLEXSPI_BASE+0x068 %LE %Long 0x40000
+Data.Set A:&FLEXSPI_BASE+0x06C %LE %Long 0x40000
+
+; Timing
+Data.Set A:&FLEXSPI_BASE+0x070 %LE %Long 0x00000063
+Data.Set A:&FLEXSPI_BASE+0x074 %LE %Long 0x00000063
+Data.Set A:&FLEXSPI_BASE+0x078 %LE %Long 0x00000063
+Data.Set A:&FLEXSPI_BASE+0x07C %LE %Long 0x00000063
+
+Data.Set A:&FLEXSPI_BASE+0x080 %LE %Long 0x00000900
+Data.Set A:&FLEXSPI_BASE+0x084 %LE %Long 0x00000900
+Data.Set A:&FLEXSPI_BASE+0x088 %LE %Long 0x00000900
+Data.Set A:&FLEXSPI_BASE+0x08C %LE %Long 0x00000900
+
+Data.Set A:&FLEXSPI_BASE+0x0B8 %LE %Long 0x1
+Data.Set A:&FLEXSPI_BASE+0x0BC %LE %Long 0x1
+
+Data.Set A:&FLEXSPI_BASE+0x0C0 %LE %Long 00100
+Data.Set A:&FLEXSPI_BASE+0x0C4 %LE %Long 00100
+
+; AHB auto-update
+Data.Set A:&FLEXSPI_BASE+0x00C %LE %Long Data.Long(A:&FLEXSPI_BASE+0x00C)&~0x20
+
+PRINT "  FlexSPI configured"
+
+; ------------------------------------------------------------------------------
+; PART 3: Verify flash contents
+; ------------------------------------------------------------------------------
+
+PRINT ""
+PRINT "Verifying flash contents..."
+
+; Check wolfBoot region at 0x20020000 (memory-mapped)
+&wb_first=Data.Long(A:0x20020000)
+PRINT "  wolfBoot first word at 0x20020000: 0x" &wb_first
+IF &wb_first==0xFFFFFFFF
+(
+  PRINT %ERROR "ERROR: wolfBoot region appears erased (0xFFFFFFFF)"
+  PRINT "       Run ls1028a_flash.cmm first"
+  STOP
+)
+
+; Check boot partition at 0x20040000
+&app_first=Data.Long(A:0x20040000)
+PRINT "  Boot partition first word at 0x20040000: 0x" &app_first
+IF &app_first==0xFFFFFFFF
+(
+  PRINT %WARNING "WARNING: Boot partition appears erased"
+)
+
+; ------------------------------------------------------------------------------
+; PART 4: Load symbols and set breakpoints
+; ------------------------------------------------------------------------------
+
+PRINT ""
+PRINT "Loading wolfBoot symbols..."
+
+; Load ELF debug symbols (code is in flash, load symbols only)
+Data.LOAD.Elf &basedir/wolfboot.elf /NoCODE
+sYmbol.SourcePATH.Set &basedir &basedir/src &basedir/hal &basedir/lib/wolfssl &basedir/test-app
+
+PRINT "  Symbols loaded from wolfboot.elf"
+
+PRINT ""
+PRINT "Setting breakpoints..."
+
+Break.Delete /ALL
+
+; Main wolfBoot entry
+IF sYmbol.EXIST(main)
+(
+  Break.Set main /Program /Onchip
+  PRINT "  BP: main"
+)
+
+; HAL init
+IF sYmbol.EXIST(hal_init)
+(
+  Break.Set hal_init /Program /Onchip
+  PRINT "  BP: hal_init"
+)
+
+; Boot entry
+IF sYmbol.EXIST(do_boot)
+(
+  Break.Set do_boot /Program /Onchip
+  PRINT "  BP: do_boot"
+)
+
+PRINT ""
+
+; Set up debug windows
+WinCLEAR
+Mode.Hll
+WinPOS 0. 0. 116. 50.
+List.auto
+WinPOS 120. 0. 100. 8.
+Frame.view
+WinPOS 120. 14.
+Var.Watch
+Var.AddWatch %SpotLight
+WinPOS 120. 25.
+Register.view /SpotLight
+
+PRINT "========================================"
+PRINT "wolfBoot Debug Ready"
+PRINT "========================================"
+PRINT ""
+PRINT "Key addresses:"
+PRINT "  wolfBoot origin: 0x20020000 (FlexSPI NOR)"
+PRINT "  Boot partition:  0x20040000"
+PRINT "  App load addr:   0x18020100 (OCRAM)"
+PRINT ""
+PRINT "Commands:"
+PRINT "  Go               - Run to next breakpoint"
+PRINT "  Step / Step.Over  - Single step"
+PRINT "  Var.View <var>    - Inspect variable"
+PRINT "  Data.dump <addr>  - Memory dump"
+PRINT ""
+PRINT "Ready - press Go to start execution"
+PRINT ""
+
+ENDDO

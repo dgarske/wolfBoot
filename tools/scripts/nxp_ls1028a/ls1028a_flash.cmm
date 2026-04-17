@@ -1,0 +1,289 @@
+; ------------------------------------------------------------------------------
+; @Title: NXP LS1028A FlexSPI NOR Flash Programming Script
+; @Description:
+;   Programs wolfBoot, signed application image, and RCW to the on-board
+;   FlexSPI NOR flash (MT35XU02G, 256 MB) on the LS1028ARDB.
+;   Uses RCW override to connect even if flash is empty/corrupt.
+; @Chip: LS1028A
+; Based on demo scripts from Lauterbach
+; ------------------------------------------------------------------------------
+;
+; Board: NXP LS1028ARDB (Cortex-A72, ARMv8-A)
+; Flash: MT35XU02GCBA1G12-0SIT (256 MB FlexSPI NOR)
+; Erase sector size: 128 KB (0x20000)
+;
+; Prerequisites:
+;   - Connect Lauterbach Debug Cable/Combiprobe to DUT_JTAG using LA-3770
+;   - DIP switches set for XSPI_NOR_BOOT:
+;     SW2=0xF8 (11111000) SW3=0x70 (01110000) SW5=0x20 (00100000)
+;   - wolfBoot built: wolfboot.bin, test-app/image_v1_signed.bin
+;
+; wolfBoot Flash Layout (from config/examples/nxp-ls1028a.config):
+;   Offset     Address      Content              Size
+;   0x00000    0x20000000   RCW                  128 KB
+;   0x20000    0x20020000   wolfboot.bin         128 KB
+;   0x40000    0x20040000   Boot partition       128 KB
+;   0x60000    0x20060000   Update partition     128 KB
+;   0x80000    0x20080000   Swap sector          128 KB
+;
+; FlexSPI controller base: 0x020C0000
+; FlexSPI memory window:   0x20000000 (256 MB)
+; OCRAM:                   0x18000000 (256 KB)
+; ------------------------------------------------------------------------------
+
+LOCAL &arg1
+ENTRY &arg1
+&arg1=STRing.UPpeR("&arg1")  ; "PREPAREONLY" to stop after flash setup
+
+; Base directory for wolfBoot build output (adjust to match your build path)
+&basedir="."
+
+; RCW binary to program (adjust path if using a custom RCW)
+&rcwbin="tools/scripts/nxp_ls1028a/rcw_1300.bin"
+
+; FlexSPI controller base address
+&FLEXSPI_BASE=0x20c0000
+
+; Flash offsets (derived from config: address - ARCH_FLASH_OFFSET 0x20000000)
+&OFF_RCW=0x0
+&OFF_WOLFBOOT=0x20000
+&OFF_BOOT=0x40000
+&OFF_UPDATE=0x60000
+&OFF_SWAP=0x80000
+
+; ------------------------------------------------------------------------------
+; PART 1: System initialization with RCW override
+; ------------------------------------------------------------------------------
+
+PRINT "========================================"
+PRINT "wolfBoot LS1028A Flash Programming"
+PRINT "========================================"
+PRINT ""
+
+IF !SYStem.Up()
+(
+  RESet
+  SYStem.RESet
+  SYStem.CPU LS1028A
+  SYStem.Option TRST OFF
+  SYStem.Option EnReset ON
+  SYStem.Option NoPRCRReset ON
+  Trace.DISable
+  SYStem.JtagClock 10MHz
+  CORE.ASSIGN 1.
+
+  ; Override the RCW to connect even if flash is empty or corrupt.
+  ; Uses Method 2: EnReset ON + HRCWOVerRide ON (assert nReset line).
+  ; BOOTLOC = OCRAM (0x150), so CPU halts without executing flash code.
+  PRINT "Connecting with RCW override (OCRAM boot)..."
+  SYStem.Option EnReset ON
+  SYStem.Option HRCWOVerRide ON
+
+  SYStem.Mode.Prepare
+
+  ; RCW_SRC = Hardcoded
+  Data.Set EDBG:0x42001080 %Long 0x0
+
+  ; RCW register values for LS1028A
+  Data.Set EDBG:0x42001000 %Long 0x34003410
+  Data.Set EDBG:0x42001004 %Long 0x34343434
+  Data.Set EDBG:0x42001008 %Long 0x34343434
+  Data.Set EDBG:0x4200100c %Long 0x00343434
+  Data.Set EDBG:0x42001010 %Long 0x00000000
+  Data.Set EDBG:0x42001014 %Long 0x92890000
+  Data.Set EDBG:0x42001018 %Long 0x0030C804
+  Data.Set EDBG:0x4200101c %Long 0x00000000
+  ; BOOTLOC = OCRAM (0x150)
+  Data.Set EDBG:0x42001020 %Long 0x00000150
+  Data.Set EDBG:0x42001024 %Long 0x00002580
+  Data.Set EDBG:0x42001028 %Long 0x00000000
+  Data.Set EDBG:0x4200102c %Long 0x00000000
+  Data.Set EDBG:0x42001030 %Long 0x00000000
+  Data.Set EDBG:0x42001034 %Long 0x00000400
+  Data.Set EDBG:0x42001038 %Long 0x00000000
+  Data.Set EDBG:0x4200103c %Long 0x00000060
+  Data.Set EDBG:0x42001040 %Long 0x00000000
+  Data.Set EDBG:0x42001044 %Long 0x00000000
+  Data.Set EDBG:0x42001048 %Long 0x00000000
+  Data.Set EDBG:0x4200104c %Long 0x00000000
+  Data.Set EDBG:0x42001050 %Long 0x00000000
+  Data.Set EDBG:0x42001054 %Long 0x00000000
+  Data.Set EDBG:0x42001058 %Long 0x00000000
+  Data.Set EDBG:0x4200105c %Long 0x00000000
+  Data.Set EDBG:0x42001060 %Long 0x00000000
+  Data.Set EDBG:0x42001064 %Long 0x00000000
+  Data.Set EDBG:0x42001068 %Long 0x00026000
+  Data.Set EDBG:0x4200106c %Long 0x00000000
+  Data.Set EDBG:0x42001070 %Long 0x00000000
+  Data.Set EDBG:0x42001074 %Long 0x00000000
+  Data.Set EDBG:0x42001078 %Long 0x00000000
+  Data.Set EDBG:0x4200107c %Long 0x00000000
+
+  SYStem.Up
+  PRINT "  System up (halted in OCRAM)"
+)
+
+Register.Set M 0x5  ; EL1h
+
+; ------------------------------------------------------------------------------
+; PART 2: FlexSPI controller configuration
+; ------------------------------------------------------------------------------
+
+PRINT "Configuring FlexSPI controller..."
+
+; Unlock FlexSPI
+Data.Set A:&FLEXSPI_BASE+0x018 %LE %Long 0x5AF05AF0
+Data.Set A:&FLEXSPI_BASE+0x01C %LE %Long 2
+
+; Controller init
+Data.Set A:&FLEXSPI_BASE+0x000 %LE %Long 0xFFFF8000
+Data.Set A:&FLEXSPI_BASE+0x004 %LE %Long 0xFFFFFFFF
+Data.Set A:&FLEXSPI_BASE+0x008 %LE %Long 0x200001F7
+Data.Set A:&FLEXSPI_BASE+0x00C %LE %Long 0x58
+Data.Set A:&FLEXSPI_BASE+0x020 %LE %Long 0x80000000
+Data.Set A:&FLEXSPI_BASE+0x024 %LE %Long 0x80000000
+Data.Set A:&FLEXSPI_BASE+0x028 %LE %Long 0x80000000
+
+; Flash size: 4 x 256 MB (0x40000 * 0x400 KB = 256 MB per die)
+Data.Set A:&FLEXSPI_BASE+0x060 %LE %Long 0x40000
+Data.Set A:&FLEXSPI_BASE+0x064 %LE %Long 0x40000
+Data.Set A:&FLEXSPI_BASE+0x068 %LE %Long 0x40000
+Data.Set A:&FLEXSPI_BASE+0x06C %LE %Long 0x40000
+
+; Timing configuration
+Data.Set A:&FLEXSPI_BASE+0x070 %LE %Long 0x00000063
+Data.Set A:&FLEXSPI_BASE+0x074 %LE %Long 0x00000063
+Data.Set A:&FLEXSPI_BASE+0x078 %LE %Long 0x00000063
+Data.Set A:&FLEXSPI_BASE+0x07C %LE %Long 0x00000063
+
+Data.Set A:&FLEXSPI_BASE+0x080 %LE %Long 0x00000900
+Data.Set A:&FLEXSPI_BASE+0x084 %LE %Long 0x00000900
+Data.Set A:&FLEXSPI_BASE+0x088 %LE %Long 0x00000900
+Data.Set A:&FLEXSPI_BASE+0x08C %LE %Long 0x00000900
+
+; FIFO watermark and reset
+Data.Set A:&FLEXSPI_BASE+0x0B8 %LE %Long 0x1
+Data.Set A:&FLEXSPI_BASE+0x0BC %LE %Long 0x1
+
+Data.Set A:&FLEXSPI_BASE+0x0C0 %LE %Long 00100
+Data.Set A:&FLEXSPI_BASE+0x0C4 %LE %Long 00100
+
+; AHB auto-update for small windows
+Data.Set A:&FLEXSPI_BASE+0x00C %LE %Long Data.Long(A:&FLEXSPI_BASE+0x00C)&~0x20
+
+PRINT "  FlexSPI configured"
+
+; ------------------------------------------------------------------------------
+; PART 3: Flash ID verification
+; ------------------------------------------------------------------------------
+
+PRINT "Reading flash ID..."
+
+Data.Set ASD:&FLEXSPI_BASE+0x80 %LE %Long 0x80000900   ; FLASHCR2
+Data.Set ASD:&FLEXSPI_BASE+0x14 %LE %Long -1            ; INTR clear
+Data.Set A:&FLEXSPI_BASE+0xB8 %Long 0x1                 ; IPRXFCR
+Data.Set A:&FLEXSPI_BASE+0xBC %Long 0x1                 ; IPTXFCR
+
+; LUT: READ_ID command (0x9F) with 4 bytes read
+Data.Set A:&FLEXSPI_BASE+0x250 %LE %Long 0x2404049F
+Data.Set A:&FLEXSPI_BASE+0x254 %LE %Long 0x0
+Data.Set A:&FLEXSPI_BASE+0x258 %LE %Long 0x0
+Data.Set A:&FLEXSPI_BASE+0x25c %LE %Long 0x0
+
+Data.Set A:&FLEXSPI_BASE+0x0A4 %LE %Long (5.<<16.)|0x4
+Data.Set A:&FLEXSPI_BASE+0x0B0 %LE %Long 1              ; Start
+
+&mfr=Data.Long(A:&FLEXSPI_BASE+0x100)&0xFF
+&dev=(Data.Long(A:&FLEXSPI_BASE+0x100)>>8.)&0xFF
+PRINT "  Manufacturer: 0x" &mfr
+PRINT "  Device ID:    0x" &dev
+
+; ------------------------------------------------------------------------------
+; PART 4: FLASHFILE setup
+; ------------------------------------------------------------------------------
+
+LOCAL &pdd
+&pdd=OS.PresentDemoDirectory()
+
+FLASHFILE.RESet
+
+; 4 dies, 64 MB each, 128 KB erase sectors
+FLASHFILE.Create 0x0000000--0x3FFFFFF 0x20000 Byte /DIEBASE 0x0
+FLASHFILE.Create 0x4000000--0x7FFFFFF 0x20000 Byte /DIEBASE 0x4000000
+FLASHFILE.Create 0x8000000--0xBFFFFFF 0x20000 Byte /DIEBASE 0x8000000
+FLASHFILE.Create 0xC000000--0xFFFFFFF 0x20000 Byte /DIEBASE 0xC000000
+
+FLASHFILE.CONFIG &FLEXSPI_BASE
+
+; Target code/data ranges in OCRAM, flash algorithm
+FLASHFILE.TARGET 0x18010000++0x2FFF 0x18014000++0x23FF &pdd/flash/byte/spi4b64_flexspi.bin /KEEP /STACKSIZE 0x200
+
+FLASHFILE.GETID
+
+; Stop here if PREPAREONLY mode (for manual flash operations)
+IF "&arg1"=="PREPAREONLY"
+(
+  PRINT ""
+  PRINT "PREPAREONLY: Flash configured, ready for manual operations."
+  PRINT "  FLASHFILE.ERASE <start>--<end>"
+  PRINT "  FLASHFILE.LOAD.binary <file> <offset>"
+  PRINT "  FLASHFILE.DUMP <offset>"
+  ENDDO
+)
+
+; ------------------------------------------------------------------------------
+; PART 5: Program flash
+; ------------------------------------------------------------------------------
+
+PRINT ""
+DIALOG.YESNO "Erase and program wolfBoot + RCW + app to NOR flash?"
+ENTRY &programnow
+IF !&programnow
+(
+  PRINT "Aborted by user."
+  ENDDO
+)
+
+; Erase wolfBoot partitions (RCW through swap = 0x0 to 0x9FFFF = 640 KB)
+PRINT ""
+PRINT "Erasing flash 0x0--0x9FFFF (640 KB)..."
+FLASHFILE.ERASE &OFF_RCW--(&OFF_SWAP+0x1FFFF)
+PRINT "  Erase complete"
+
+; Program RCW
+PRINT "Programming RCW at 0x" &OFF_RCW "..."
+FLASHFILE.LOAD.binary &basedir/&rcwbin &OFF_RCW
+PRINT "  RCW programmed"
+
+; Program wolfBoot
+PRINT "Programming wolfboot.bin at 0x" &OFF_WOLFBOOT "..."
+FLASHFILE.LOAD.binary &basedir/wolfboot.bin &OFF_WOLFBOOT
+FLASHFILE.LOAD.binary &basedir/wolfboot.bin &OFF_WOLFBOOT /ComPare
+PRINT "  wolfboot.bin programmed and verified"
+
+; Program signed application image
+PRINT "Programming image_v1_signed.bin at 0x" &OFF_BOOT "..."
+FLASHFILE.LOAD.binary &basedir/test-app/image_v1_signed.bin &OFF_BOOT
+FLASHFILE.LOAD.binary &basedir/test-app/image_v1_signed.bin &OFF_BOOT /ComPare
+PRINT "  image_v1_signed.bin programmed and verified"
+
+; Show flash contents
+PRINT ""
+PRINT "Flash dump at RCW (0x0):"
+FLASHFILE.DUMP &OFF_RCW /LONG
+
+PRINT ""
+PRINT "========================================"
+PRINT "Flash programming complete"
+PRINT "========================================"
+PRINT ""
+PRINT "Programmed:"
+PRINT "  RCW              at 0x" &OFF_RCW
+PRINT "  wolfboot.bin     at 0x" &OFF_WOLFBOOT
+PRINT "  signed app       at 0x" &OFF_BOOT
+PRINT ""
+PRINT "Power cycle the board to boot from NOR flash."
+PRINT "Monitor UART1 (115200 8N1) for wolfBoot output."
+PRINT ""
+
+ENDDO
