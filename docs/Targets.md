@@ -2322,19 +2322,18 @@ Open Script > debug_wolfboot.cmm
 ```
 
 You can modify the Lauterbach NOR flash demo or use `debug_wolfboot.cmm` script, just make sure the flash offset for
-the RCW is `0x0` and the address offset for wolboot is `0x1000`.
+the RCW is `0x0` and the address offset for wolfboot is `0x20000`.
 
 #### Other Tools
 
 1. Make sure the memory addresses are aligned with the `.config` file.
 2. Note the important NOR flash addresses in the default config are as follows.
 3. RCW location is offset `0x0` or `0x20000000` memory mapped.
-4. Wolfboot location is offset `0x1000` or `0x20001000` where wolfboot starts.
-5. Application location is offset `0x20000` or `0x20020000` where application code goes.
-6. Update location is offset `0x40000` or `0x20040000` where the new or updated applciaiton goes.
-7. Load Location is `0x18020100` which is OCRAM or where the applciaiton code is loaded if using RAM loading from
-8. DTS Location is
-9. Update memory locations as needed.
+4. wolfBoot location is offset `0x20000` or `0x20020000` where wolfboot starts.
+5. Application location is offset `0x40000` or `0x20040000` where application code goes.
+6. Update location is offset `0x60000` or `0x20060000` where the update partition goes.
+7. Load Location is `0x18020100` which is OCRAM where the application code is loaded (NO_XIP).
+8. Update memory locations as needed.
 
 
 ## Cortex-A53 / Raspberry PI 3 (experimental)
