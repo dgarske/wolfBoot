@@ -26,6 +26,18 @@
 #define _FORTIFY_SOURCE 0
 #endif
 
+/* Enable %llu/%llx support on platforms with 64-bit types */
+#if !defined(PRINTF_LONG_LONG) && ( \
+    defined(__alpha__) || defined(__ia64__) || defined(_ARCH_PPC64) || \
+    defined(__x86_64__) || defined(_M_X64) || \
+    defined(__aarch64__) || defined(_M_ARM64) || \
+    defined(__sparc64__) || defined(__s390x__) || \
+    defined(__ppc64__) || defined(__powerpc64__) || defined(__PPC__) || \
+    (defined(__riscv_xlen) && (__riscv_xlen == 64)) || \
+    defined(__SIZEOF_LONG_LONG__))
+    #define PRINTF_LONG_LONG
+#endif
+
 #include <stddef.h>
 #if !defined(TARGET_library) && defined(__STDC_HOSTED__) && __STDC_HOSTED__ \
     && !defined(__CCRX__)
@@ -353,7 +365,7 @@ void uart_writenum(int num, int base, int zeropad, int maxdigits)
 void uart_vprintf(const char* fmt, va_list argp)
 {
     char* fmtp = (char*)fmt;
-    int zeropad, maxdigits, precision, leftjust;
+    int zeropad, maxdigits, precision, leftjust, islong;
     while (fmtp != NULL && *fmtp != '\0') {
         /* print non formatting characters */
         if (*fmtp != '%') {
@@ -363,7 +375,7 @@ void uart_vprintf(const char* fmt, va_list argp)
         fmtp++; /* skip % */
 
         /* find formatters */
-        zeropad = maxdigits = leftjust = 0;
+        zeropad = maxdigits = leftjust = islong = 0;
         precision = -1; /* -1 = not specified */
         /* check for left-justify flag */
         if (*fmtp == '-') {
@@ -400,7 +412,7 @@ void uart_vprintf(const char* fmt, va_list argp)
                 }
             }
             else if (*fmtp == 'l') {
-                /* long - skip */
+                islong++;
                 fmtp++;
             }
             else if (*fmtp == 'z') {
@@ -420,8 +432,18 @@ void uart_vprintf(const char* fmt, va_list argp)
             case 'i':
             case 'd':
             {
-                int n = (int)va_arg(argp, int);
-                uart_writenum(n, 10, zeropad, maxdigits);
+            #ifdef PRINTF_LONG_LONG
+                if (islong >= 2) {
+                    /* %llu / %lld: consume 64-bit arg, print low 32 bits */
+                    unsigned long long ll = va_arg(argp, unsigned long long);
+                    uart_writenum((int)(unsigned int)ll, 10, zeropad, maxdigits);
+                }
+                else
+            #endif
+                {
+                    int n = (int)va_arg(argp, int);
+                    uart_writenum(n, 10, zeropad, maxdigits);
+                }
                 break;
             }
             case 'p':
@@ -430,8 +452,18 @@ void uart_vprintf(const char* fmt, va_list argp)
             case 'x':
             case 'X':
             {
-                int n = (int)va_arg(argp, int);
-                uart_writenum(n, 16, zeropad, maxdigits);
+            #ifdef PRINTF_LONG_LONG
+                if (islong >= 2) {
+                    /* %llx: consume 64-bit arg, print low 32 bits */
+                    unsigned long long ll = va_arg(argp, unsigned long long);
+                    uart_writenum((int)(unsigned int)ll, 16, zeropad, maxdigits);
+                }
+                else
+            #endif
+                {
+                    int n = (int)va_arg(argp, int);
+                    uart_writenum(n, 16, zeropad, maxdigits);
+                }
                 break;
             }
             case 's':
