@@ -1166,7 +1166,9 @@ static void hal_mp_init(void)
 {
     uint32_t *fixup = (uint32_t*)&_secondary_start_page;
     uint32_t bootpg, second_half_ddr, spin_table_ddr;
+#ifdef BOARD_CW_VPX3152
     volatile uint32_t *bp, *st;
+#endif
     size_t i;
     const volatile uint32_t *s;
     volatile uint32_t *d;
@@ -1344,11 +1346,28 @@ int hal_dts_fixup(void* dts_addr)
      * own spin-table page (0x7fee4000); wolfBoot's spin table lives
      * elsewhere, so we reserve based on the actual runtime address. */
     {
+        int rsv_ret;
         uint64_t spin_pg = (uint64_t)(g_spin_table_ddr & ~0xFFFU);
-        fdt_add_mem_rsv(fdt, spin_pg, 0x1000ULL);   /* wolfBoot spin table */
+
+        rsv_ret = fdt_add_mem_rsv(fdt, spin_pg, 0x1000ULL);
+        if (rsv_ret != 0) {
+            wolfBoot_printf("FDT: failed to reserve spin-table page "
+                "@ 0x%llx: %d\n", spin_pg, rsv_ret);
+            return rsv_ret;
+        }
+        rsv_ret = fdt_add_mem_rsv(fdt, 0x7ffff000ULL, 0x1000ULL);
+        if (rsv_ret != 0) {
+            wolfBoot_printf("FDT: failed to reserve boot page "
+                "@ 0x7ffff000: %d\n", rsv_ret);
+            return rsv_ret;
+        }
+        rsv_ret = fdt_add_mem_rsv(fdt, 0xfffff000ULL, 0x1000ULL);
+        if (rsv_ret != 0) {
+            wolfBoot_printf("FDT: failed to reserve top-of-4GB page "
+                "@ 0xfffff000: %d\n", rsv_ret);
+            return rsv_ret;
+        }
     }
-    fdt_add_mem_rsv(fdt, 0x7ffff000ULL, 0x1000ULL); /* boot page (top of 2GB) */
-    fdt_add_mem_rsv(fdt, 0xfffff000ULL, 0x1000ULL); /* top of 4GB DDR */
 #endif
 
     /* fixup the memory region.

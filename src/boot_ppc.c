@@ -401,22 +401,36 @@ void RAMFUNCTION wolfBoot_os64bit_jump(os64bit_entry_t entry,
 {
     extern void hal_flash_cache_disable_pre_os(void);
     extern unsigned int isr_empty;
+    extern unsigned int isr_empty_end;
     {
         volatile uint32_t *src = (volatile uint32_t *)&isr_empty;
         volatile uint32_t *dst = (volatile uint32_t *)
             WOLFBOOT_OS64BIT_IVPR_DDR;
-        int i;
-        /* Copy 256 bytes -- isr_empty is ~208 bytes; round up to a
-         * power-of-two so dcbst/icbi loop is simple. */
-        for (i = 0; i < 64; i++) {
+        uintptr_t bytes = (uintptr_t)&isr_empty_end -
+            (uintptr_t)&isr_empty;
+        /* Word count, rounded up. Cache-line range, rounded up to
+         * 64-byte lines (one e6500 dcbz/dcbst granule). */
+        uintptr_t copy_words = (bytes + sizeof(uint32_t) - 1U) /
+            sizeof(uint32_t);
+        uintptr_t cache_words = ((copy_words + 15U) / 16U) * 16U;
+        uintptr_t i;
+
+        /* Reserve enough headroom in the IVPR landing zone for the
+         * handler to grow without silently truncating the copy. */
+        #define WOLFBOOT_OS64BIT_IVPR_MAX 0x400U /* 1 KB */
+        if (bytes > WOLFBOOT_OS64BIT_IVPR_MAX) {
+            return; /* refuse to jump with a truncated handler */
+        }
+
+        for (i = 0; i < copy_words; i++) {
             dst[i] = src[i];
         }
         /* Make the DDR copy visible to the I-cache fetcher. */
-        for (i = 0; i < 64; i += 16) { /* one cache line per 64 bytes */
+        for (i = 0; i < cache_words; i += 16U) { /* 64 bytes per line */
             __asm__ __volatile__("dcbst 0,%0" :: "r"(&dst[i]) : "memory");
         }
         __asm__ __volatile__("sync" ::: "memory");
-        for (i = 0; i < 64; i += 16) {
+        for (i = 0; i < cache_words; i += 16U) {
             __asm__ __volatile__("icbi 0,%0" :: "r"(&dst[i]) : "memory");
         }
         __asm__ __volatile__("sync; isync" ::: "memory");
@@ -479,9 +493,11 @@ void do_boot(const uint32_t *app_offset)
     wolfBoot_printf("do_boot: pre-transition\n");
 #endif
 
-#ifdef MMU
+#if defined(MMU) && !defined(BUILD_LOADER_STAGE1)
     /* Flush FDT from D-cache to DDR so the OS sees all fixup changes.
-     * Must be done after hal_dts_fixup and before entry(). */
+     * Must be done after hal_dts_fixup and before entry(). Stage1
+     * doesn't run hal_dts_fixup, so the flush isn't needed (and
+     * flush_cache itself is excluded from stage1). */
     flush_cache((uint32_t)dts_offset, WOLFBOOT_DTS_MAX_SIZE);
 #endif
 

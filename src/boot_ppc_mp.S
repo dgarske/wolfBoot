@@ -182,6 +182,8 @@ branch_prediction:
 #if defined(CORE_E5500) || defined(CORE_E6500)
         rlwinm  r8, r0, 29, 0x03 /* r8 = core within cluster */
         srwi    r10, r0, 5       /* r10 = cluster */
+        mr      r9, r10          /* r9 = cluster (preserved across r10 reuse
+                                  *      below as spin-table base) */
 
         mulli   r5, r10, CORES_PER_CLUSTER
         add     r5, r5, r8       /* r5 = linear core ID */
@@ -221,9 +223,12 @@ branch_prediction:
          * wolfBoot releases secondaries during hal_mp_init before the OS
          * jump, so we MUST gate L2FI on (cluster != primary's cluster).
          *
-         * r10 already holds the cluster ID from the PIR-decoding above.
-         * Primary boots on cluster 0, so skip L2 init when r10 == 0. */
-        cmpwi   r10, 0
+         * r9 holds the cluster ID (preserved before r10 was repurposed as
+         * the spin-table base). Primary boots on cluster 0, so skip L2
+         * init when r9 == 0. Note: gating on r5 (linear core ID) would be
+         * wrong -- secondaries in cluster 0 have cluster=0 but
+         * linear core ID != 0 and would still hit L2FI. */
+        cmpwi   r9, 0
         beq     l2_init_skip_e6500
 
         msync

@@ -202,18 +202,15 @@
     #define ENABLE_FMAN
 
 #ifdef BOARD_CW_VPX3152
-    /* Relocate CCSRBAR: default 0xFE000000 (16MB) falls within 256MB flash
-     * VA range 0xF0000000-0xFFFFFFFF. Move to 0xEF000000 (just below flash).
-     * The existing relocation code in boot_ppc_start.S handles the hardware
-     * CCSRBAR register write when CCSRBAR_DEF != CCSRBAR_PHYS.
+    /* Relocate CCSRBAR: default 0xFE000000 (16MB) falls within the 256MB
+     * flash VA range 0xF0000000-0xFFFFFFFF. Move to 0xEF000000 (just below
+     * flash). The existing relocation code in boot_ppc_start.S handles the
+     * hardware CCSRBAR register write when CCSRBAR_DEF != CCSRBAR_PHYS.
      *
-     * Two physical-address profiles supported here:
-     *   PHYS_HIGH=0xF: 36-bit-aliased CCSR (PA=0xF_EF000000). Matches the
-     *                  FDT cw_152_64.dtb soc.ranges entry for VxWorks 7
-     *                  but caused VxWorks 7 to silent-boot from wolfBoot.
-     *   PHYS_HIGH=0:   32-bit CCSR     (PA=0x0_EF000000). Matches the
-     *                  *production* CW U-Boot tlb_table, which boots
-     *                  VxWorks 7 64-bit fully (CPU Count: 8, ...). */
+     * CCSR is mapped at PA=0xF_EF000000 (36-bit-aliased, PHYS_HIGH=0xF) to
+     * match the cw_152_64.dtb soc.ranges entry. A 32-bit alternative
+     * (PA=0x0_EF000000) was tested during bring-up but is not selectable
+     * in this header. */
     #define CCSRBAR 0xEF000000
     #define CCSRBAR_PHYS_HIGH 0xF
     #define CCSRBAR_NEW_REG 0x00FEF000 /* (PHYS_HIGH << 20) | (CCSRBAR >> 12) */
@@ -289,6 +286,13 @@
 #endif
 #ifndef CCSRBAR_PHYS_HIGH
 #define CCSRBAR_PHYS_HIGH 0
+#endif
+/* Encoding written into CCSRBAR for the legacy (e500/e500mc) relocation
+ * path: PHYS_HIGH in [23:20], PA[35:12] in the low bits. Boards that
+ * relocate CCSRBAR but don't use USE_CORENET_INTERFACE need this
+ * pre-computed because GAS @h/@l can't evaluate the shift/OR. */
+#ifndef CCSRBAR_NEW_REG
+#define CCSRBAR_NEW_REG ((CCSRBAR_PHYS_HIGH << 20) | (CCSRBAR >> 12))
 #endif
 
 

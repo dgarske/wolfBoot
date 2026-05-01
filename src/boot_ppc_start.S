@@ -1450,6 +1450,8 @@ isr_empty:
         stw     r4, 0x1C(r3)
 #endif
 1:      b       1b
+        .global isr_empty_end
+isr_empty_end:
 #endif
 
 /* reset entry point - must be at end of .S */
