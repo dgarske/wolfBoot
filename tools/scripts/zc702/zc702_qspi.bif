@@ -1,0 +1,19 @@
+// bootgen image descriptor for ZC702 QSPI boot.
+//
+// Pairs the prebuilt Zynq-7000 FSBL from
+//   ${PREBUILT_DIR}/zynq_fsbl.elf  (default ../soc-prebuilt-firmware/zc702-zynq)
+// with wolfboot.elf produced by `make TARGET=zynq7000`.
+//
+// Usage:
+//   PREBUILT_DIR=$HOME/GitHub/soc-prebuilt-firmware/zc702-zynq \
+//   cp ${PREBUILT_DIR}/zynq_fsbl.elf .
+//   bootgen -arch zynq -image tools/scripts/zc702/zc702_qspi.bif -w -o BOOT.BIN
+//
+// Then program BOOT.BIN to QSPI offset 0 with `program_flash` (Vitis) or
+// Vivado Hardware Manager. Set ZC702 SW16 to QSPI boot and power-cycle.
+
+the_ROM_image:
+{
+    [bootloader] zynq_fsbl.elf
+    wolfboot.elf
+}

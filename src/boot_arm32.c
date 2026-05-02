@@ -68,13 +68,13 @@ void RAMFUNCTION do_boot(const uint32_t *app_offset)
 	/* Move the dts pointer to r5 (as first argument) */
 	asm volatile("mov r5, %0" : : "r"(dts_offset));
 #else
-	asm volatile("mov r5, 0");
+	asm volatile("mov r5, #0");
 #endif
 
     /* Zero registers r1, r2, r3 */
-    asm volatile("mov r3, 0");
-    asm volatile("mov r2, 0");
-    asm volatile("mov r1, 0");
+    asm volatile("mov r3, #0");
+    asm volatile("mov r2, #0");
+    asm volatile("mov r1, #0");
 
     /* Move the dts pointer to r0 (as first argument) */
     asm volatile("mov r0, r5");

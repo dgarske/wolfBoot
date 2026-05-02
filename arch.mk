@@ -303,6 +303,19 @@ ifeq ($(ARCH),ARM)
      CFLAGS+=-DWOLFBOOT_USE_STDLIBC
   endif
 
+  ifeq ($(TARGET),zynq7000)
+     # AMD/Xilinx Zynq-7000 (Cortex-A9, ARMv7-A) - ZC702 Evaluation Kit.
+     # Loaded by Xilinx FSBL into DDR; see hal/zynq7000.{c,h,ld}.
+     CORTEX_A9=1
+     UPDATE_OBJS:=src/update_ram.o
+     CFLAGS+=-DWOLFBOOT_DUALBOOT -fno-builtin -ffreestanding
+     # Do NOT define WOLFBOOT_USE_STDLIBC: newlib's memcpy uses unaligned
+     # LDRs which fault on Cortex-A9 when MMU is off (FSBL leaves MMU off
+     # on Zynq-7000). Use wolfBoot's own aligned-safe memcpy from src/string.c.
+     # U-Boot legacy header detection for Linux/U-Boot payloads (Milestone 5)
+     CFLAGS+=-DWOLFBOOT_UBOOT_LEGACY
+  endif
+
   ifeq ($(TARGET),va416x0)
     CFLAGS+=-I$(WOLFBOOT_ROOT)/hal/vorago/ \
             -I$(VORAGO_SDK_DIR)/common/drivers/hdr/ \
@@ -333,6 +346,32 @@ ifeq ($(CORTEX_A5),1)
           -z noexecstack  -Ttext 0x300000
   # Cortex-A uses boot_arm32.o
   OBJS+=src/boot_arm32.o src/boot_arm32_start.o
+  ifeq ($(NO_ASM),1)
+    MATH_OBJS+=$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/sp_c32.o
+  else
+    MATH_OBJS+=$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/sp_arm32.o
+    ifneq ($(NO_ARM_ASM),1)
+      OBJS+=$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/port/arm/armv8-32-sha256-asm.o
+      OBJS+=$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/port/arm/armv8-32-sha256-asm_c.o
+      CFLAGS+=-DWOLFSSL_SP_ARM32_ASM -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
+              -DWOLFSSL_ARM_ARCH=7 -DWOLFSSL_ARMASM_INLINE -DWOLFSSL_ARMASM_NO_NEON
+    endif
+  endif
+else
+ifeq ($(CORTEX_A9),1)
+  # Cortex-A9 (ARMv7-A, 32-bit) - Zynq-7000.
+  # Build in ARM state (-marm); reset vector lands in ARM mode after FSBL.
+  # Note: do not filter out -mthumb from CFLAGS/LDFLAGS - that converts the
+  # variables to simple-expansion flavor and breaks lazy $(LSCRIPT) expansion
+  # in test-app/Makefile. -marm appended later wins over -mthumb anyway.
+  FPU=-mfpu=vfp3-d16
+  CFLAGS+=-mcpu=cortex-a9 -mtune=cortex-a9 -marm -static -z noexecstack \
+          -mno-unaligned-access
+  LDFLAGS+=-mcpu=cortex-a9 -mtune=cortex-a9 -marm -static -z noexecstack
+  # Cortex-A9 uses boot_arm32.o (shared do_boot) + a Zynq-7000-specific
+  # startup (VBAR, MMU/cache disable, all-mode stacks). The shared
+  # boot_arm32_start.S used by SAMA5D3/Cortex-A5 lacks those.
+  OBJS+=src/boot_arm32.o src/boot_zynq7000_start.o
   ifeq ($(NO_ASM),1)
     MATH_OBJS+=$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src/sp_c32.o
   else
@@ -453,6 +492,7 @@ else
       endif
     endif
   endif
+endif
 endif
 endif
 endif
