@@ -709,7 +709,8 @@ static int wolfBoot_delta_update(struct wolfBoot_image *boot,
                 cur_v, delta_base_v);
             ret = -1;
         } else if (!resume && delta_base_hash &&
-                image_CT_compare(base_hash, delta_base_hash, base_hash_sz) != 0) {
+                wolfBoot_hardened_CT_compare(base_hash, delta_base_hash,
+                    base_hash_sz) != 0) {
             /* Wrong base image digest, cannot apply delta patch */
             wolfBoot_printf("Delta Base hash mismatch\n");
             ret = -1;

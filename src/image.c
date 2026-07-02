@@ -71,6 +71,25 @@ int NOINLINEFUNCTION image_CT_compare(
     return (diff != 0U) ? 1 : 0;
 }
 
+/**
+ * Fault-hardened equality check around image_CT_compare(): the constant-time
+ * comparison is run twice and a match is reported only when both independent
+ * calls agree. A single instruction-skip fault can subvert at most one of the
+ * two calls (or one of the two result checks), so a genuine mismatch is still
+ * detected. Returns 0 when equal, non-zero otherwise.
+ */
+int NOINLINEFUNCTION wolfBoot_hardened_CT_compare(
+    const uint8_t *expected, const uint8_t *actual, uint32_t len)
+{
+    volatile int r1 = image_CT_compare(expected, actual, len);
+    volatile int r2 = image_CT_compare(expected, actual, len);
+    if (r1 != 0)
+        return -1;
+    if (r2 != 0)
+        return -1;
+    return 0;
+}
+
 #if defined(WOLFBOOT_CERT_CHAIN_VERIFY) && \
     (defined(WOLFBOOT_ENABLE_WOLFHSM_CLIENT) || \
      defined(WOLFBOOT_ENABLE_WOLFHSM_SERVER))
@@ -2111,7 +2130,8 @@ int wolfBoot_check_flash_image_elf(uint8_t part, unsigned long* entry_out)
 
     /* Finalize SHA calculation */
     final_hash(&ctx, calc_digest);
-    if (image_CT_compare(exp_digest, calc_digest, WOLFBOOT_SHA_DIGEST_SIZE) != 0) {
+    if (wolfBoot_hardened_CT_compare(exp_digest, calc_digest,
+            WOLFBOOT_SHA_DIGEST_SIZE) != 0) {
         wolfBoot_printf("ELF: [CHECK] SHA verification FAILED\n");
         wolfBoot_printf(
             "ELF: [CHECK] Expected   %02x%02x%02x%02x%02x%02x%02x%02x\n",
