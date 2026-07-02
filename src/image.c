@@ -71,6 +71,25 @@ int NOINLINEFUNCTION image_CT_compare(
     return (diff != 0U) ? 1 : 0;
 }
 
+/**
+ * Fault-hardened equality check around image_CT_compare(): the constant-time
+ * comparison is run twice and a match is reported only when both independent
+ * calls agree. A single instruction-skip fault can subvert at most one of the
+ * two calls (or one of the two result checks), so a genuine mismatch is still
+ * detected. Returns 0 when equal, non-zero otherwise.
+ */
+int NOINLINEFUNCTION wolfBoot_hardened_CT_compare(
+    const uint8_t *expected, const uint8_t *actual, uint32_t len)
+{
+    volatile int r1 = image_CT_compare(expected, actual, len);
+    volatile int r2 = image_CT_compare(expected, actual, len);
+    /* Combine both results without branching: non-zero if either independent
+     * comparison reported a mismatch. This preserves image_CT_compare()'s 0/1
+     * return semantics and avoids data-dependent control flow, while a single
+     * fault can still subvert at most one of the two calls. */
+    return (r1 | r2);
+}
+
 #if defined(WOLFBOOT_CERT_CHAIN_VERIFY) && \
     (defined(WOLFBOOT_ENABLE_WOLFHSM_CLIENT) || \
      defined(WOLFBOOT_ENABLE_WOLFHSM_SERVER))
@@ -1424,7 +1443,7 @@ int wolfBoot_open_image_address(struct wolfBoot_image *img, uint8_t *image)
     }
 #endif
     img->hdr_ok = 1;
-    img->fw_base = img->hdr + IMAGE_HEADER_SIZE;
+    wolfBoot_image_set_fw_base(img, img->hdr + IMAGE_HEADER_SIZE);
 #ifdef EXT_FLASH
     img->hdr_cache = image;
 #endif
@@ -1488,7 +1507,7 @@ int wolfBoot_open_image(struct wolfBoot_image *img, uint8_t part)
     if (part == PART_SWAP) {
         img->hdr = (void*)WOLFBOOT_PARTITION_SWAP_ADDRESS;
         img->hdr_ok = 1;
-        img->fw_base = img->hdr;
+        wolfBoot_image_set_fw_base(img, img->hdr);
         img->fw_size = WOLFBOOT_SECTOR_SIZE;
         return 0;
     }
@@ -1507,7 +1526,7 @@ int wolfBoot_open_image(struct wolfBoot_image *img, uint8_t part)
         if (ret < 0)
             return -1;
         img->hdr_ok = 1;
-        img->fw_base = img->hdr;
+        wolfBoot_image_set_fw_base(img, img->hdr);
         img->fw_size = (uint32_t)ret;
         return 0;
     }
@@ -1620,7 +1639,7 @@ int wolfBoot_open_self_address(struct wolfBoot_image* img, uint8_t* hdr,
         return -1;
     }
 #endif
-    img->fw_base = image;
+    wolfBoot_image_set_fw_base(img, image);
     img->part    = PART_SELF;
     img->hdr_ok  = 1;
 
@@ -2111,7 +2130,8 @@ int wolfBoot_check_flash_image_elf(uint8_t part, unsigned long* entry_out)
 
     /* Finalize SHA calculation */
     final_hash(&ctx, calc_digest);
-    if (image_CT_compare(exp_digest, calc_digest, WOLFBOOT_SHA_DIGEST_SIZE) != 0) {
+    if (wolfBoot_hardened_CT_compare(exp_digest, calc_digest,
+            WOLFBOOT_SHA_DIGEST_SIZE) != 0) {
         wolfBoot_printf("ELF: [CHECK] SHA verification FAILED\n");
         wolfBoot_printf(
             "ELF: [CHECK] Expected   %02x%02x%02x%02x%02x%02x%02x%02x\n",

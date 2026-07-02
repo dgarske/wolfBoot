@@ -707,7 +707,8 @@ static int wolfBoot_delta_update(struct wolfBoot_image *boot,
                 cur_v, delta_base_v);
             ret = -1;
         } else if (!resume && delta_base_hash &&
-                image_CT_compare(base_hash, delta_base_hash, base_hash_sz) != 0) {
+                wolfBoot_hardened_CT_compare(base_hash, delta_base_hash,
+                    base_hash_sz) != 0) {
             /* Wrong base image digest, cannot apply delta patch */
             wolfBoot_printf("Delta Base hash mismatch\n");
             ret = -1;
@@ -1268,7 +1269,7 @@ static int RAMFUNCTION wolfBoot_update(int fallback_allowed)
     wolfBoot_printf(
         "Scattered image correctly verified. Setting entry point to %lx\n",
         entry);
-    boot.fw_base = (void*)entry;
+    wolfBoot_image_set_fw_base(&boot, (void*)entry);
 #endif
     /* Direct Swap without power fail safety */
 
@@ -1616,7 +1617,7 @@ void RAMFUNCTION wolfBoot_start(void)
     wolfBoot_printf(
         "Scattered image correctly verified. Setting entry point to %lx\n",
         entry);
-    boot.fw_base = (void*)entry;
+    wolfBoot_image_set_fw_base(&boot, (void*)entry);
 #endif
 
 
@@ -1648,6 +1649,7 @@ void RAMFUNCTION wolfBoot_start(void)
 #endif
 #ifndef WOLFBOOT_SKIP_BOOT_VERIFY
     PART_SANITY_CHECK(&boot);
+    FW_BASE_SANITY_CHECK(&boot);
 #endif
     do_boot((void *)boot.fw_base);
 }

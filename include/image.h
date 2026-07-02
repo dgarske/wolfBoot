@@ -173,6 +173,7 @@ struct wolfBoot_image {
     uint32_t sha_ok;
     uint32_t canary_FEEDCAFE;
     uint32_t not_sha_ok;
+    uintptr_t not_fw_base; /* complement of fw_base, for FI hardening */
     uint32_t not_ext; /* image is no longer external */
 };
 
@@ -227,6 +228,18 @@ static void NOINLINEFUNCTION wolfBoot_image_clear_sha_ok(
     img->sha_ok = 0UL;
     img->canary_FEEDCAFE = 0xFEEDCAFEUL;
     img->not_sha_ok = 1UL;
+}
+
+/**
+ * Records the image entry base together with its complement, so that a single
+ * fault on the pointer that do_boot() jumps through can be detected by
+ * FW_BASE_SANITY_CHECK() before the branch is taken.
+ */
+static void NOINLINEFUNCTION wolfBoot_image_set_fw_base(
+    struct wolfBoot_image *img, void *base)
+{
+    img->fw_base = (uint8_t *)base;
+    img->not_fw_base = ~(uintptr_t)base;
 }
 
 /**
@@ -756,6 +769,43 @@ static void NOINLINEFUNCTION wolfBoot_image_clear_sha_ok(
     asm volatile("cmp r2, #0xFFFFFFFE":::"cc"); \
     asm volatile("cmp r2, #0xFFFFFFFE":::"cc"); \
     asm volatile("bne .-12")
+
+/**
+ * Hardened assertion that the image entry base is consistent with its stored
+ * complement (fw_base == ~not_fw_base), performed immediately before do_boot()
+ * dereferences fw_base. A single fault on either the pointer or the loads
+ * fails the check safely (spins) instead of redirecting the boot jump.
+ */
+#define FW_BASE_SANITY_CHECK(p) \
+    do { \
+        /* Single asm block so the compiler cannot allocate over r0/r2 between \
+         * steps: r2 = fw_base, r0 = ~not_fw_base (== expected fw_base), then \
+         * a redundant self-trapping comparison that spins on any mismatch. */ \
+        asm volatile( \
+            "mov r2, %[fwb]\n\t" \
+            "mov r0, %[nfwb]\n\t" \
+            "mvn r0, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .-4\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .-8\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .-12\n\t" \
+            : \
+            : [fwb] "r" ((uintptr_t)(p)->fw_base), \
+              [nfwb] "r" ((uintptr_t)(p)->not_fw_base) \
+            : "r0", "r2", "cc"); \
+    } while (0)
 
 /**
  * ECC / Ed / PQ signature verification.
@@ -1521,6 +1571,11 @@ static void UNUSEDFUNCTION wolfBoot_image_clear_sha_ok(
 {
 	img->sha_ok = 0;
 }
+static void UNUSEDFUNCTION wolfBoot_image_set_fw_base(
+    struct wolfBoot_image *img, void *base)
+{
+    img->fw_base = (uint8_t *)base;
+}
 
 #define likely(x) (x)
 #define unlikely(x) (x)
@@ -1560,6 +1615,8 @@ static void UNUSEDFUNCTION wolfBoot_image_clear_sha_ok(
     if ((p)->sha_ok != 1) \
         wolfBoot_panic()
 
+#define FW_BASE_SANITY_CHECK(p) do{} while(0)
+
 #define CONFIRM_MASK_VALID(id, mask) \
     if ((mask & (1UL << id)) != (1UL << id)) \
         wolfBoot_panic()
@@ -1570,6 +1627,8 @@ static void UNUSEDFUNCTION wolfBoot_image_clear_sha_ok(
 
 /* Defined in image.c */
 int image_CT_compare(const uint8_t *expected, const uint8_t *actual,
+    uint32_t len);
+int wolfBoot_hardened_CT_compare(const uint8_t *expected, const uint8_t *actual,
     uint32_t len);
 int wolfBoot_open_image(struct wolfBoot_image *img, uint8_t part);
 #ifdef EXT_FLASH
