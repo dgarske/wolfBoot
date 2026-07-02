@@ -777,32 +777,35 @@ static void NOINLINEFUNCTION wolfBoot_image_set_fw_base(
  * fails the check safely (spins) instead of redirecting the boot jump.
  */
 #define FW_BASE_SANITY_CHECK(p) \
-    /* Redundant set of r2=0 */ \
-    asm volatile("mov r2, #0":::"r2"); \
-    asm volatile("mov r2, #0":::"r2"); \
-    asm volatile("mov r2, #0":::"r2"); \
-    asm volatile("mov r2, #0":::"r2"); \
-    asm volatile("mov r2, #0":::"r2"); \
-    /* r2 = fw_base, r0 = ~not_fw_base (== expected fw_base) */ \
-    asm volatile("mov r2, %0" ::"r"((uintptr_t)(p)->fw_base):"r2"); \
-    asm volatile("mov r0, %0" ::"r"((p)->not_fw_base):"r0"); \
-    asm volatile("mvn r0, r0":::"r0"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("bne ."); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("bne .-4"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("bne .-8"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("cmp r2, r0":::"cc"); \
-    asm volatile("bne .-12")
+    do { \
+        /* Single asm block so the compiler cannot allocate over r0/r2 between \
+         * steps: r2 = fw_base, r0 = ~not_fw_base (== expected fw_base), then \
+         * a redundant self-trapping comparison that spins on any mismatch. */ \
+        asm volatile( \
+            "mov r2, %[fwb]\n\t" \
+            "mov r0, %[nfwb]\n\t" \
+            "mvn r0, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .-4\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .-8\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "cmp r2, r0\n\t" \
+            "bne .-12\n\t" \
+            : \
+            : [fwb] "r" ((uintptr_t)(p)->fw_base), \
+              [nfwb] "r" ((uintptr_t)(p)->not_fw_base) \
+            : "r0", "r2", "cc"); \
+    } while (0)
 
 /**
  * ECC / Ed / PQ signature verification.

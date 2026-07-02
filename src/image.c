@@ -83,11 +83,11 @@ int NOINLINEFUNCTION wolfBoot_hardened_CT_compare(
 {
     volatile int r1 = image_CT_compare(expected, actual, len);
     volatile int r2 = image_CT_compare(expected, actual, len);
-    if (r1 != 0)
-        return -1;
-    if (r2 != 0)
-        return -1;
-    return 0;
+    /* Combine both results without branching: non-zero if either independent
+     * comparison reported a mismatch. This preserves image_CT_compare()'s 0/1
+     * return semantics and avoids data-dependent control flow, while a single
+     * fault can still subvert at most one of the two calls. */
+    return (r1 | r2);
 }
 
 #if defined(WOLFBOOT_CERT_CHAIN_VERIFY) && \
