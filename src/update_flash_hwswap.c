@@ -46,11 +46,6 @@ void RAMFUNCTION wolfBoot_start(void)
     int active;
     struct wolfBoot_image fw_image;
     uint8_t p_state;
-#ifndef ALLOW_DOWNGRADE
-    uint32_t boot_v = wolfBoot_current_firmware_version();
-    uint32_t update_v = wolfBoot_update_firmware_version();
-    uint32_t max_v = (boot_v > update_v) ? boot_v : update_v;
-#endif
     active = wolfBoot_dualboot_candidate();
 
     if (active < 0) /* panic if no images available */
@@ -58,6 +53,9 @@ void RAMFUNCTION wolfBoot_start(void)
 
     for (;;) {
 #ifndef ALLOW_DOWNGRADE
+        uint32_t boot_v = wolfBoot_current_firmware_version();
+        uint32_t update_v = wolfBoot_update_firmware_version();
+        uint32_t max_v = (boot_v > update_v) ? boot_v : update_v;
         uint32_t active_v = (active == PART_UPDATE) ? update_v : boot_v;
         if ((max_v > 0U) && (active_v < max_v)) {
             wolfBoot_printf("Rollback to lower version not allowed\n");

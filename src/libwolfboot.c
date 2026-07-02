@@ -799,7 +799,9 @@ void RAMFUNCTION wolfBoot_erase_partition(uint8_t part)
             ext_flash_erase(address, size);
             ext_flash_lock();
         } else {
+            hal_flash_unlock();
             hal_flash_erase(address, size);
+            hal_flash_lock();
         }
     }
 }
