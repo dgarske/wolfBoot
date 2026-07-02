@@ -70,9 +70,6 @@ START_TEST (test_nvm_select_fresh_sector)
     /* Sanity */
     ck_assert(home_off <= WOLFBOOT_SECTOR_SIZE);
     
-    /* unlock the flash to allow operations */
-    hal_flash_unlock();
-
     /* Check swap erase */
     wolfBoot_erase_partition(PART_SWAP);
     ck_assert(erased_swap == 1);
@@ -83,6 +80,7 @@ START_TEST (test_nvm_select_fresh_sector)
 
     erased_update = 0;
     wolfBoot_erase_partition(part);
+    hal_flash_unlock();
 #ifndef FLAGS_HOME
     ck_assert(erased_update == 1);
 #else
@@ -201,7 +199,9 @@ START_TEST (test_nvm_select_fresh_sector)
     ck_assert_msg(ret == 1, "Failed to select most recent sector after deleting flags\n");
 
     /* Start over, update some sector flags */
+    hal_flash_lock();
     wolfBoot_erase_partition(PART_UPDATE);
+    hal_flash_unlock();
     wolfBoot_set_update_sector_flag(0, SECT_FLAG_UPDATED);
     wolfBoot_set_update_sector_flag(1, SECT_FLAG_UPDATED);
     wolfBoot_set_update_sector_flag(2, SECT_FLAG_UPDATED);
@@ -253,7 +253,9 @@ START_TEST (test_nvm_select_fresh_sector)
     /* Erase partition and start over */
     erased_update = 0;
     erased_boot = 0;
+    hal_flash_lock();
     wolfBoot_erase_partition(part);
+    hal_flash_unlock();
 #ifndef FLAGS_HOME
     ck_assert(erased_update == 1);
 #else
@@ -262,10 +264,10 @@ START_TEST (test_nvm_select_fresh_sector)
 
     ret = nvm_select_fresh_sector(PART_UPDATE);
     ck_assert_msg(ret == 0, "Failed to select right sector after reading sector state\n");
-    
-    /* re-lock the flash: update_trigger implies unlocking/locking */
+
     hal_flash_lock();
 
+    /* re-lock the flash: update_trigger implies unlocking/locking */
     /* Triggering update to set flags */
     wolfBoot_update_trigger();
 
@@ -302,8 +304,8 @@ START_TEST(test_partition_magic_write_stops_on_flash_write_error)
             WOLFBOOT_SECTOR_SIZE, NULL);
     ck_assert(ret >= 0);
 
-    hal_flash_unlock();
     wolfBoot_erase_partition(PART_UPDATE);
+    hal_flash_unlock();
 
     magic = get_partition_magic(PART_UPDATE);
     *magic = wolfboot_magic_trail;
@@ -313,8 +315,12 @@ START_TEST(test_partition_magic_write_stops_on_flash_write_error)
     erased_nvm_bank1 = 0;
     hal_flash_write_fail = 1;
 
+    if (locked)
+        hal_flash_unlock();
     ret = partition_magic_write(PART_UPDATE,
             PART_UPDATE_ENDFLAGS - sizeof(uint32_t));
+    if (!locked)
+        hal_flash_lock();
     ck_assert_int_eq(ret, -1);
     ck_assert_int_eq(erased_update, 0);
 #ifdef FLAGS_HOME
@@ -326,7 +332,7 @@ START_TEST(test_partition_magic_write_stops_on_flash_write_error)
     ck_assert_int_eq(erased_nvm_bank1, 0);
     ck_assert_uint_eq(*magic, wolfboot_magic_trail);
 
-    hal_flash_lock();
+    locked = 1;
 }
 END_TEST
 
@@ -348,8 +354,8 @@ START_TEST(test_get_update_sector_flag_rejects_invalid_magic)
             (void *)MOCK_ADDRESS_SWAP, WOLFBOOT_SECTOR_SIZE, NULL);
     ck_assert(ret >= 0);
 
-    hal_flash_unlock();
     wolfBoot_erase_partition(PART_UPDATE);
+    hal_flash_unlock();
 
     magic = get_partition_magic(PART_UPDATE);
     *magic = 0xFFFFFFFF;
@@ -379,8 +385,8 @@ START_TEST(test_update_sector_flag_high_index_does_not_alias_low_index)
             (void *)MOCK_ADDRESS_SWAP, WOLFBOOT_SECTOR_SIZE, NULL);
     ck_assert(ret >= 0);
 
-    hal_flash_unlock();
     wolfBoot_erase_partition(PART_UPDATE);
+    hal_flash_unlock();
 
     ret = wolfBoot_set_update_sector_flag(1, SECT_FLAG_SWAPPING);
     ck_assert_int_eq(ret, 0);

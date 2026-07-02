@@ -233,9 +233,7 @@ void RAMFUNCTION wolfBoot_check_self_update(void)
             wolfBoot_get_image_type(PART_UPDATE) == (HDR_IMG_TYPE_WOLFBOOT | HDR_IMG_TYPE_AUTH)) {
         uint32_t update_version = wolfBoot_update_firmware_version();
         if (update_version <= wolfboot_version) {
-            hal_flash_unlock();
             wolfBoot_erase_partition(PART_UPDATE);
-            hal_flash_lock();
             return;
         }
         if (wolfBoot_verify_integrity(&update) < 0) {

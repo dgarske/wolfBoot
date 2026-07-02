@@ -773,20 +773,20 @@ int wolfBoot_get_update_sector_flag(uint16_t sector, uint8_t *flag)
  */
 void RAMFUNCTION wolfBoot_erase_partition(uint8_t part)
 {
-    uint32_t address = 0;
+    uintptr_t address = 0;
     int size = 0;
 
     switch (part) {
         case PART_BOOT:
-            address = (uint32_t)WOLFBOOT_PARTITION_BOOT_ADDRESS;
+            address = (uintptr_t)WOLFBOOT_PARTITION_BOOT_ADDRESS;
             size = WOLFBOOT_PARTITION_SIZE;
             break;
         case PART_UPDATE:
-            address = (uint32_t)WOLFBOOT_PARTITION_UPDATE_ADDRESS;
+            address = (uintptr_t)WOLFBOOT_PARTITION_UPDATE_ADDRESS;
             size = WOLFBOOT_PARTITION_SIZE;
             break;
         case PART_SWAP:
-            address = (uint32_t)WOLFBOOT_PARTITION_SWAP_ADDRESS;
+            address = (uintptr_t)WOLFBOOT_PARTITION_SWAP_ADDRESS;
             size = WOLFBOOT_SECTOR_SIZE;
             break;
         default:

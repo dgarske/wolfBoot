@@ -45,21 +45,22 @@ rollback_output="$(timeout 3s ./wolfboot.elf get_version 2>&1)"
 rollback_rc=$?
 set -e
 
-if [ "$rollback_rc" -eq 0 ]; then
-    echo "Expected rollback denial, but boot continued normally." >&2
-    exit 1
-fi
-
-if [ "$rollback_rc" -ne 124 ] && [ "$rollback_rc" -ne 80 ]; then
-    echo "Unexpected exit code while checking rollback denial: $rollback_rc" >&2
+if [ "$rollback_rc" -ne 0 ]; then
+    echo "Expected fallback boot after invalidating the corrupted update, got exit code: $rollback_rc" >&2
     echo "$rollback_output" >&2
     exit 1
 fi
 
-if ! printf '%s\n' "$rollback_output" | grep -q "Rollback to lower version not allowed"; then
-    echo "Rollback denial message not found in output." >&2
+if printf '%s\n' "$rollback_output" | grep -q "Rollback to lower version not allowed"; then
+    echo "Rollback denial message should not be present after fallback." >&2
     echo "$rollback_output" >&2
     exit 1
 fi
 
-echo "Dualbank rollback-to-older-version denial verified."
+if ! printf '%s\n' "$rollback_output" | grep -q "Simulator do_boot app_offset"; then
+    echo "Fallback boot did not reach the application handoff." >&2
+    echo "$rollback_output" >&2
+    exit 1
+fi
+
+echo "Dualbank corrupted-update fallback verified."
