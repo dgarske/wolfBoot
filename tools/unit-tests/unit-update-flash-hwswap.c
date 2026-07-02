@@ -226,18 +226,15 @@ static int add_payload(uint8_t part, uint32_t version, uint32_t size)
     return 0;
 }
 
-/* Regression test for the uint32_t->int cast in wolfBoot_start (hwswap).
+/* Regression test for corrupted-image fallback in wolfBoot_start (hwswap).
  *
  * BOOT carries a higher version than UPDATE, but its image is unbootable
  * (oversize header), so wolfBoot_start falls back to the UPDATE partition,
- * which holds a LOWER version. Anti-rollback must deny booting the lower
- * version (boot_panic, no do_boot).
- *
- * Both versions are above INT_MAX: with the buggy (int)cast they were clamped
- * to 0, max_v became 0, the "(max_v > 0U)" guard was skipped, and the
- * rolled-back UPDATE image was staged for boot.
+ * which holds a lower version. After invalidating the failing BOOT image,
+ * anti-rollback must re-evaluate versions and allow booting the only
+ * remaining valid image.
  */
-START_TEST (test_hwswap_highversion_rollback_denied) {
+START_TEST (test_hwswap_highversion_fallback_boots_lower_version) {
     uint32_t oversize = WOLFBOOT_PARTITION_SIZE;
 
     reset_mock_stats();
@@ -257,8 +254,8 @@ START_TEST (test_hwswap_highversion_rollback_denied) {
 
     wolfBoot_start();
 
-    /* Rollback to the lower UPDATE version must be denied */
-    ck_assert_int_eq(do_boot_called, 0);
+    ck_assert_int_eq(dualbank_swap_called, 1);
+    ck_assert_int_eq(do_boot_called, 1);
     cleanup_flash();
 }
 END_TEST
@@ -329,14 +326,15 @@ END_TEST
 Suite *wolfboot_suite(void)
 {
     Suite *s = suite_create("wolfboot-hwswap");
-    TCase *rollback_denied =
-        tcase_create("HW-swap high-version rollback denied");
+    TCase *fallback_boots =
+        tcase_create("HW-swap high-version fallback boots lower version");
     TCase *successful_boot =
         tcase_create("HW-swap successful boot");
 
-    tcase_add_test(rollback_denied, test_hwswap_highversion_rollback_denied);
-    suite_add_tcase(s, rollback_denied);
-    tcase_set_timeout(rollback_denied, 5);
+    tcase_add_test(fallback_boots,
+        test_hwswap_highversion_fallback_boots_lower_version);
+    suite_add_tcase(s, fallback_boots);
+    tcase_set_timeout(fallback_boots, 5);
 
     tcase_add_test(successful_boot, test_hwswap_first_boot_success);
     tcase_add_test(successful_boot, test_hwswap_postswap_success);

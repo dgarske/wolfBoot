@@ -74,9 +74,6 @@ START_TEST (test_nvm_update_with_encryption)
     /* Sanity */
     ck_assert(home_off <= WOLFBOOT_SECTOR_SIZE);
 
-    /* unlock the flash to allow operations */
-    hal_flash_unlock();
-
     /* Check swap erase */
     wolfBoot_erase_partition(PART_SWAP);
     ck_assert(erased_swap == 1);
@@ -87,6 +84,7 @@ START_TEST (test_nvm_update_with_encryption)
 
     erased_update = 0;
     wolfBoot_erase_partition(part);
+    hal_flash_unlock();
 #ifndef FLAGS_HOME
     ck_assert(erased_update == 1);
 #else
@@ -206,7 +204,9 @@ START_TEST (test_nvm_update_with_encryption)
     ck_assert_msg(ret == 1, "Failed to select most recent sector after deleting flags\n");
 
     /* Start over, update some sector flags */
+    hal_flash_lock();
     wolfBoot_erase_partition(PART_UPDATE);
+    hal_flash_unlock();
     wolfBoot_set_update_sector_flag(0, SECT_FLAG_UPDATED);
     wolfBoot_set_update_sector_flag(1, SECT_FLAG_UPDATED);
     wolfBoot_set_update_sector_flag(2, SECT_FLAG_UPDATED);
@@ -259,7 +259,9 @@ START_TEST (test_nvm_update_with_encryption)
     /* Erase partition and start over */
     erased_update = 0;
     erased_boot = 0;
+    hal_flash_lock();
     wolfBoot_erase_partition(part);
+    hal_flash_unlock();
 #ifndef FLAGS_HOME
     ck_assert(erased_update == 1);
 #else
@@ -269,9 +271,9 @@ START_TEST (test_nvm_update_with_encryption)
     ret = nvm_select_fresh_sector(PART_UPDATE);
     ck_assert_msg(ret == 0, "Failed to select right sector after reading sector state\n");
 
-    /* re-lock the flash: update_trigger implies unlocking/locking */
     hal_flash_lock();
 
+    /* re-lock the flash: update_trigger implies unlocking/locking */
     /* Triggering update to set flags */
     wolfBoot_update_trigger();
 
@@ -307,9 +309,7 @@ START_TEST(test_set_encrypt_key_propagates_flash_write_error)
             WOLFBOOT_SECTOR_SIZE, NULL);
     ck_assert(ret >= 0);
 
-    hal_flash_unlock();
     wolfBoot_erase_partition(PART_BOOT);
-    hal_flash_lock();
 
     hal_flash_write_fail = 1;
     ret = wolfBoot_set_encrypt_key(key, nonce);
@@ -335,9 +335,7 @@ START_TEST(test_erase_encrypt_key_propagates_flash_write_error)
             (void *)MOCK_ADDRESS_SWAP, WOLFBOOT_SECTOR_SIZE, NULL);
     ck_assert(ret >= 0);
 
-    hal_flash_unlock();
     wolfBoot_erase_partition(PART_BOOT);
-    hal_flash_lock();
 
     ret = wolfBoot_set_encrypt_key(key, nonce);
     ck_assert_int_eq(ret, 0);
