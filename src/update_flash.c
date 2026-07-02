@@ -1270,7 +1270,7 @@ static int RAMFUNCTION wolfBoot_update(int fallback_allowed)
     wolfBoot_printf(
         "Scattered image correctly verified. Setting entry point to %lx\n",
         entry);
-    boot.fw_base = (void*)entry;
+    wolfBoot_image_set_fw_base(&boot, (void*)entry);
 #endif
     /* Direct Swap without power fail safety */
 
@@ -1618,7 +1618,7 @@ void RAMFUNCTION wolfBoot_start(void)
     wolfBoot_printf(
         "Scattered image correctly verified. Setting entry point to %lx\n",
         entry);
-    boot.fw_base = (void*)entry;
+    wolfBoot_image_set_fw_base(&boot, (void*)entry);
 #endif
 
 
@@ -1650,6 +1650,7 @@ void RAMFUNCTION wolfBoot_start(void)
 #endif
 #ifndef WOLFBOOT_SKIP_BOOT_VERIFY
     PART_SANITY_CHECK(&boot);
+    FW_BASE_SANITY_CHECK(&boot);
 #endif
     do_boot((void *)boot.fw_base);
 }

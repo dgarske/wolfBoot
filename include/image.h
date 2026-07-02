@@ -173,6 +173,7 @@ struct wolfBoot_image {
     uint32_t sha_ok;
     uint32_t canary_FEEDCAFE;
     uint32_t not_sha_ok;
+    uintptr_t not_fw_base; /* complement of fw_base, for FI hardening */
     uint32_t not_ext; /* image is no longer external */
 };
 
@@ -227,6 +228,18 @@ static void NOINLINEFUNCTION wolfBoot_image_clear_sha_ok(
     img->sha_ok = 0UL;
     img->canary_FEEDCAFE = 0xFEEDCAFEUL;
     img->not_sha_ok = 1UL;
+}
+
+/**
+ * Records the image entry base together with its complement, so that a single
+ * fault on the pointer that do_boot() jumps through can be detected by
+ * FW_BASE_SANITY_CHECK() before the branch is taken.
+ */
+static void NOINLINEFUNCTION wolfBoot_image_set_fw_base(
+    struct wolfBoot_image *img, void *base)
+{
+    img->fw_base = (uint8_t *)base;
+    img->not_fw_base = ~(uintptr_t)base;
 }
 
 /**
@@ -755,6 +768,40 @@ static void NOINLINEFUNCTION wolfBoot_image_clear_sha_ok(
     asm volatile("cmp r2, #0xFFFFFFFE":::"cc"); \
     asm volatile("cmp r2, #0xFFFFFFFE":::"cc"); \
     asm volatile("cmp r2, #0xFFFFFFFE":::"cc"); \
+    asm volatile("bne .-12")
+
+/**
+ * Hardened assertion that the image entry base is consistent with its stored
+ * complement (fw_base == ~not_fw_base), performed immediately before do_boot()
+ * dereferences fw_base. A single fault on either the pointer or the loads
+ * fails the check safely (spins) instead of redirecting the boot jump.
+ */
+#define FW_BASE_SANITY_CHECK(p) \
+    /* Redundant set of r2=0 */ \
+    asm volatile("mov r2, #0":::"r2"); \
+    asm volatile("mov r2, #0":::"r2"); \
+    asm volatile("mov r2, #0":::"r2"); \
+    asm volatile("mov r2, #0":::"r2"); \
+    asm volatile("mov r2, #0":::"r2"); \
+    /* r2 = fw_base, r0 = ~not_fw_base (== expected fw_base) */ \
+    asm volatile("mov r2, %0" ::"r"((uintptr_t)(p)->fw_base):"r2"); \
+    asm volatile("mov r0, %0" ::"r"((p)->not_fw_base):"r0"); \
+    asm volatile("mvn r0, r0":::"r0"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("bne ."); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("bne .-4"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("bne .-8"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
+    asm volatile("cmp r2, r0":::"cc"); \
     asm volatile("bne .-12")
 
 /**
@@ -1521,6 +1568,11 @@ static void UNUSEDFUNCTION wolfBoot_image_clear_sha_ok(
 {
 	img->sha_ok = 0;
 }
+static void UNUSEDFUNCTION wolfBoot_image_set_fw_base(
+    struct wolfBoot_image *img, void *base)
+{
+    img->fw_base = (uint8_t *)base;
+}
 
 #define likely(x) (x)
 #define unlikely(x) (x)
@@ -1559,6 +1611,8 @@ static void UNUSEDFUNCTION wolfBoot_image_clear_sha_ok(
 #define SHA_SANITY_CHECK(p) \
     if ((p)->sha_ok != 1) \
         wolfBoot_panic()
+
+#define FW_BASE_SANITY_CHECK(p) do{} while(0)
 
 #define CONFIRM_MASK_VALID(id, mask) \
     if ((mask & (1UL << id)) != (1UL << id)) \

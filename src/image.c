@@ -1424,7 +1424,7 @@ int wolfBoot_open_image_address(struct wolfBoot_image *img, uint8_t *image)
     }
 #endif
     img->hdr_ok = 1;
-    img->fw_base = img->hdr + IMAGE_HEADER_SIZE;
+    wolfBoot_image_set_fw_base(img, img->hdr + IMAGE_HEADER_SIZE);
 #ifdef EXT_FLASH
     img->hdr_cache = image;
 #endif
@@ -1488,7 +1488,7 @@ int wolfBoot_open_image(struct wolfBoot_image *img, uint8_t part)
     if (part == PART_SWAP) {
         img->hdr = (void*)WOLFBOOT_PARTITION_SWAP_ADDRESS;
         img->hdr_ok = 1;
-        img->fw_base = img->hdr;
+        wolfBoot_image_set_fw_base(img, img->hdr);
         img->fw_size = WOLFBOOT_SECTOR_SIZE;
         return 0;
     }
@@ -1507,7 +1507,7 @@ int wolfBoot_open_image(struct wolfBoot_image *img, uint8_t part)
         if (ret < 0)
             return -1;
         img->hdr_ok = 1;
-        img->fw_base = img->hdr;
+        wolfBoot_image_set_fw_base(img, img->hdr);
         img->fw_size = (uint32_t)ret;
         return 0;
     }
@@ -1620,7 +1620,7 @@ int wolfBoot_open_self_address(struct wolfBoot_image* img, uint8_t* hdr,
         return -1;
     }
 #endif
-    img->fw_base = image;
+    wolfBoot_image_set_fw_base(img, image);
     img->part    = PART_SELF;
     img->hdr_ok  = 1;
 
