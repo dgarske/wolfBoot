@@ -315,12 +315,11 @@ START_TEST(test_partition_magic_write_stops_on_flash_write_error)
     erased_nvm_bank1 = 0;
     hal_flash_write_fail = 1;
 
-    if (locked)
-        hal_flash_unlock();
+    /* Flash was left unlocked by the hal_flash_unlock() above, so
+     * partition_magic_write() runs against unlocked flash and re-locks after. */
     ret = partition_magic_write(PART_UPDATE,
             PART_UPDATE_ENDFLAGS - sizeof(uint32_t));
-    if (!locked)
-        hal_flash_lock();
+    hal_flash_lock();
     ck_assert_int_eq(ret, -1);
     ck_assert_int_eq(erased_update, 0);
 #ifdef FLAGS_HOME
@@ -331,8 +330,6 @@ START_TEST(test_partition_magic_write_stops_on_flash_write_error)
     ck_assert_int_eq(erased_nvm_bank0, 0);
     ck_assert_int_eq(erased_nvm_bank1, 0);
     ck_assert_uint_eq(*magic, wolfboot_magic_trail);
-
-    locked = 1;
 }
 END_TEST
 

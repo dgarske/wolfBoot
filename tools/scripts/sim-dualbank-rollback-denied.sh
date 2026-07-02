@@ -1,4 +1,11 @@
 #!/bin/bash
+#
+# NOTE: Despite the "rollback-denied" filename (kept to avoid churning the CI
+# workflow references), this script now verifies the corrupted-update *fallback*
+# path: after the UPDATE image is invalidated, wolfBoot must fall back and boot
+# the remaining valid image instead of denying the boot. The denial message must
+# NOT appear and the application handoff must be reached.
+#
 set -euo pipefail
 
 if [ ! -f ".config" ]; then

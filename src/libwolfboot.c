@@ -767,7 +767,10 @@ int wolfBoot_get_update_sector_flag(uint16_t sector, uint8_t *flag)
 /**
  * @brief Erase a partition.
  *
- * This function erases a partition.
+ * This function erases a partition. It manages the flash lock internally:
+ * the target flash (internal or external) is unlocked before the erase and
+ * locked again before returning. Callers do not need to unlock the flash
+ * beforehand, and on return the flash is left locked.
  *
  * @param[in] part Partition number.
  */
