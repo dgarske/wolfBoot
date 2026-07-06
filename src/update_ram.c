@@ -41,6 +41,9 @@
 #ifdef WOLFBOOT_ELF
 #include "elf.h"
 #endif
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+#include "../hal/zynqmp_atf.h"
+#endif
 
 extern void hal_flash_dualbank_swap(void);
 extern int wolfBoot_get_dts_size(void *dts_addr);
@@ -51,6 +54,20 @@ extern uint32_t dts_load_addr;
 #if defined(__WOLFBOOT) && defined(WOLFBOOT_LOAD_ADDRESS)
 extern uint8_t _end[];  /* linker symbol: end of wolfBoot BSS */
 #endif
+
+/* Return non-zero if the RAM load region [img_lo, img_hi) overlaps wolfBoot's
+ * own region [wb_lo, wb_hi). wb_lo == 0 means the origin is unknown, so guard
+ * only that the image loads above wolfBoot's end (wb_hi). Pure arithmetic,
+ * exposed at file scope for unit testing (tools/unit-tests/unit-update-ram.c). */
+static inline int ramboot_region_overlap(uintptr_t img_lo, uintptr_t img_hi,
+    uintptr_t wb_lo, uintptr_t wb_hi)
+{
+    if (img_hi < img_lo)
+        return 1; /* header+size wrapped the end address: reject conservatively */
+    if (wb_lo == 0)
+        return (img_lo < wb_hi);
+    return (img_lo < wb_hi && img_hi > wb_lo);
+}
 
 #if ((defined(EXT_FLASH) && defined(NO_XIP)) || \
     (defined(EXT_ENCRYPTED) && defined(MMU))) && \
@@ -114,12 +131,28 @@ int wolfBoot_ramboot(struct wolfBoot_image *img, uint8_t *src, uint8_t *dst)
 #endif
 
 #if defined(__WOLFBOOT) && defined(WOLFBOOT_LOAD_ADDRESS)
-    /* Runtime overlap check: ensure image destination does not overwrite
-     * wolfBoot's own code/data/bss in RAM. */
-    if ((uintptr_t)dst < (uintptr_t)_end) {
-        wolfBoot_printf("Error: image dest %p overlaps wolfBoot end %p\n",
-            dst, _end);
-        return -1;
+    /* Overlap check: the image destination must not overwrite wolfBoot's own
+     * code/data/bss (ends at _end). The image occupies [dst, dst+header+size]. */
+    {
+        uintptr_t wb_hi  = (uintptr_t)_end;
+        uintptr_t img_lo = (uintptr_t)dst;
+        uintptr_t img_hi = img_lo + (uintptr_t)IMAGE_HEADER_SIZE +
+                           (uintptr_t)img_size;
+#if defined(WOLFBOOT_ORIGIN)
+        /* wolfBoot spans [WOLFBOOT_ORIGIN, _end]; range-intersect so it holds
+         * whether wolfBoot is below or above the image -- e.g. ZynqMP FSBL runs
+         * from high OCM while the image loads to low DDR, where the plain
+         * "dst < _end" test gave a false positive. */
+        uintptr_t wb_lo = (uintptr_t)(WOLFBOOT_ORIGIN);
+#else
+        /* Without WOLFBOOT_ORIGIN, wb_lo=0 keeps the original low-addr guard. */
+        uintptr_t wb_lo = 0;
+#endif
+        if (ramboot_region_overlap(img_lo, img_hi, wb_lo, wb_hi)) {
+            wolfBoot_printf("Error: image %p-%p overlaps wolfBoot %p-%p\n",
+                (void*)img_lo, (void*)img_hi, (void*)wb_lo, (void*)wb_hi);
+            return -1;
+        }
     }
 #endif
 
@@ -249,6 +282,12 @@ void RAMFUNCTION wolfBoot_start(void)
 #ifdef MMU
     uint8_t *dts_addr = NULL;
     uint32_t dts_size = 0;
+#endif
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+    /* When wolfBoot is the FSBL, the boot FIT carries an "atf" (BL31)
+     * sub-image. If present, hand off to BL31 instead of jumping to the
+     * kernel directly. */
+    uintptr_t bl31_entry = 0;
 #endif
 #if !defined(ALLOW_DOWNGRADE) && defined(WOLFBOOT_FIXED_PARTITIONS)
     uint32_t boot_v = wolfBoot_current_firmware_version();
@@ -528,6 +567,18 @@ backup_on_failure:
             }
             load_address = new_load;
         }
+#if defined(WOLFBOOT_ZYNQMP_FSBL)
+        /* Load BL31 (ARM Trusted Firmware) to its DDR exec address. Its entry
+         * point is the FIT `load`/`entry` address returned here. Optional: if
+         * absent, fall through to the normal direct boot. */
+        {
+            void *atf_load = fit_load_image(fit, "atf", NULL);
+            if (atf_load != NULL) {
+                bl31_entry = (uintptr_t)atf_load;
+                wolfBoot_printf("FIT: BL31 (atf) loaded at %p\n", atf_load);
+            }
+        }
+#endif
         if (flat_dt != NULL) {
             uint8_t *dts_ptr = fit_load_image(fit, flat_dt, (int*)&dts_size);
             if (dts_ptr != NULL && wolfBoot_get_dts_size(dts_ptr) >= 0) {
@@ -604,6 +655,17 @@ backup_on_failure:
 #endif
 #ifndef WOLFBOOT_SKIP_BOOT_VERIFY
     PART_SANITY_CHECK(&os_image);
+#endif
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+    if (bl31_entry != 0) {
+        /* Hand off to BL31 (resident EL3 monitor). BL31 starts the kernel
+         * (BL33) at EL2; the DTB is forwarded via PMU_GLOBAL scratch (see
+         * hal/zynqmp_atf.c). Does not return. */
+        wolfBoot_printf("Handing off to BL31 at 0x%x (kernel 0x%x)\n",
+            (uint32_t)bl31_entry, (uint32_t)(uintptr_t)load_address);
+        zynqmp_atf_handoff(bl31_entry, (uintptr_t)load_address,
+            (uintptr_t)dts_addr, ZYNQMP_ATF_EL2);
+    }
 #endif
 #ifdef MMU
     do_boot((uint32_t*)load_address,

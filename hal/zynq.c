@@ -86,8 +86,12 @@ typedef struct QspiDev {
 } QspiDev_t;
 
 static QspiDev_t mDev;
+#ifndef WOLFBOOT_ZYNQMP_FSBL
+/* PMU firmware version, queried over SMC to ARM-TF. Not available when wolfBoot
+ * is itself the FSBL running at EL3 (no ATF below). */
 static uint32_t pmuVer;
 #define PMUFW_MIN_VER 0x10001 /* v1.1*/
+#endif
 
 /* forward declarations */
 static int qspi_wait_ready(QspiDev_t* dev);
@@ -194,7 +198,6 @@ static void smc_call(struct pt_regs *args)
 #define PM_SIP_SVC         0xC2000000
 #define PM_GET_API_VERSION 0x01
 #define PM_SECURE_SHA      0x1A
-#define PM_SECURE_RSA      0x1B
 #define PM_MMIO_WRITE      0x13
 #define PM_MMIO_READ       0x14
 
@@ -265,6 +268,102 @@ uint32_t pmu_get_version(void)
     return ret_payload[1];
 }
 
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(WOLFBOOT_ZYNQMP_PM_CFG)
+/* Direct APU->PMU IPI transport for loading the PMU configuration object.
+ *
+ * pmu_request() above talks to the PMU over an SMC to the ARM Trusted Firmware
+ * SIP service. When wolfBoot is itself the FSBL running at EL3 there is no ATF
+ * below it, so the SMC path is unavailable and we must reach the PMU firmware
+ * directly over the APU->PMU IPI channel, mirroring what the Xilinx FSBL does
+ * via XPm_SetConfiguration(). See hal/board/zynqmp/pm_cfg_obj.c for the data. */
+#define PMU_GLOBAL_CNTRL_REG    0xFFD80000UL
+#define PMU_GLOBAL_FW_IS_PRESENT (1UL << 4) /* GLOBAL_CNTRL[FW_IS_PRESENT] */
+
+/* APU IPI block (base 0xFF300000): TRIG at +0x00, OBS at +0x04. The PMU
+ * channel-0 request is bit 16 in the APU trigger/observation registers. */
+#define IPI_APU_TRIG_REG        0xFF300000UL
+#define IPI_APU_OBS_REG         0xFF300004UL
+#define IPI_PMU_CH0_MASK        0x00010000UL
+
+/* IPI message RAM (base 0xFF990000). APU(buffer index 2) -> PMU(index 7):
+ *   request  = base + 2*0x200 + 7*0x40        = 0xFF9905C0
+ *   response = base + 2*0x200 + 7*0x40 + 0x20 = 0xFF9905E0 */
+#define IPI_APU_TO_PMU_REQ_BUF  0xFF9905C0UL
+#define IPI_PMU_TO_APU_RESP_BUF 0xFF9905E0UL
+
+/* PM API id (payload word 0) for loading the configuration object. */
+#define PM_SET_CONFIGURATION    0x02U
+
+#define PM_IPI_POLL_MAX         10000000UL
+
+extern const uint32_t pm_cfg_obj[];
+extern const uint32_t pm_cfg_obj_words;
+
+/* Send the PMU configuration object to the PMU firmware so it programs its
+ * EEMI access-control table (which masters may control which nodes). Returns
+ * the PMU status word (0 == success) or -1 on transport failure. */
+int zynqmp_pm_set_configuration(void)
+{
+    volatile uint32_t* fw_present = (volatile uint32_t*)PMU_GLOBAL_CNTRL_REG;
+    volatile uint32_t* req  = (volatile uint32_t*)IPI_APU_TO_PMU_REQ_BUF;
+    volatile uint32_t* resp = (volatile uint32_t*)IPI_PMU_TO_APU_RESP_BUF;
+    volatile uint32_t* trig = (volatile uint32_t*)IPI_APU_TRIG_REG;
+    volatile uint32_t* obs  = (volatile uint32_t*)IPI_APU_OBS_REG;
+    uint32_t status;
+    uint32_t timeout;
+
+    /* PMU firmware must be running to accept the object. */
+    if ((*fw_present & PMU_GLOBAL_FW_IS_PRESENT) == 0) {
+        wolfBoot_printf("PM config: PMUFW not present, skipping\n");
+        return -1;
+    }
+
+    /* The PMU reads the object from memory by address; make sure our copy is
+     * visible at the point of coherency before handing over the pointer. */
+    flush_dcache_range((unsigned long)&pm_cfg_obj[0],
+        (unsigned long)&pm_cfg_obj[0] + sizeof(pm_cfg_obj[0]) * pm_cfg_obj_words);
+
+    /* Wait for the PMU channel to be free (observation bit clear). */
+    timeout = PM_IPI_POLL_MAX;
+    while ((*obs & IPI_PMU_CH0_MASK) != 0) {
+        if (--timeout == 0) {
+            wolfBoot_printf("PM config: IPI channel busy\n");
+            return -1;
+        }
+    }
+
+    /* Build the request: [PM_SET_CONFIGURATION, cfg-object address]. The
+     * object lives in OCM (< 4GB) so the 32-bit truncation is exact. */
+    req[0] = PM_SET_CONFIGURATION;
+    req[1] = (uint32_t)(uintptr_t)&pm_cfg_obj[0];
+    req[2] = 0;
+    req[3] = 0;
+    req[4] = 0;
+    req[5] = 0;
+    req[6] = 0;
+    __asm__ volatile("dsb sy" ::: "memory");
+
+    /* Trigger the IPI to PMU channel 0. */
+    *trig = IPI_PMU_CH0_MASK;
+    __asm__ volatile("dsb sy" ::: "memory");
+
+    /* Wait for the PMU to acknowledge (clears the observation bit). */
+    timeout = PM_IPI_POLL_MAX;
+    while ((*obs & IPI_PMU_CH0_MASK) != 0) {
+        if (--timeout == 0) {
+            wolfBoot_printf("PM config: no PMUFW ack\n");
+            return -1;
+        }
+    }
+
+    /* Response word 0 holds the PMU status (0 == XST_SUCCESS). */
+    status = resp[0];
+    wolfBoot_printf("PM config: PMUFW status 0x%x (%d words)\n",
+        (unsigned int)status, (int)pm_cfg_obj_words);
+    return (int)status;
+}
+#endif /* WOLFBOOT_ZYNQMP_FSBL && WOLFBOOT_ZYNQMP_PM_CFG */
+
 /* Aligned data buffer for DMA */
 #define EFUSE_MAX_BUFSZ (sizeof(pmu_efuse) + 48 /* SHA3-384 Digest */)
 static uint8_t XALIGNED(32) efuseBuf[EFUSE_MAX_BUFSZ];
@@ -286,20 +385,35 @@ uint32_t pmu_efuse_read(uint32_t offset, uint32_t* data, uint32_t size)
     return ret_payload[0]; /* 0=Success, 30=No Access */
 }
 
+/* PMU-mediated MMIO. As the FSBL wolfBoot runs at EL3 with no ATF beneath it,
+ * so the SMC/PMU path is unavailable -- access the register directly (the CSU,
+ * eFuse and clock/reset regs these are used for are EL3-accessible, matching
+ * what the Xilinx FSBL does). Otherwise (wolfBoot as BL33 above ATF) go through
+ * the PM_MMIO_READ/WRITE SMC so the PMU enforces access control. */
 uint32_t pmu_mmio_read(uint32_t addr)
 {
+#if defined(WOLFBOOT_ZYNQMP_FSBL)
+    return *((volatile uint32_t*)(uintptr_t)addr);
+#else
     uint32_t ret_payload[PM_ARGS_CNT];
     memset(ret_payload, 0, sizeof(ret_payload));
     pmu_request(PM_MMIO_READ, addr, 0, 0, 0, ret_payload);
     return ret_payload[1];
+#endif
 }
 
 uint32_t pmu_mmio_writemask(uint32_t addr, uint32_t mask, uint32_t val)
 {
+#if defined(WOLFBOOT_ZYNQMP_FSBL)
+    volatile uint32_t* reg = (volatile uint32_t*)(uintptr_t)addr;
+    *reg = (*reg & ~mask) | (val & mask);
+    return 0;
+#else
     uint32_t ret_payload[PM_ARGS_CNT];
     memset(ret_payload, 0, sizeof(ret_payload));
     pmu_request(PM_MMIO_WRITE, addr, mask, val, 0, ret_payload);
     return ret_payload[0]; /* 0=Success, 30=No Access */
+#endif
 }
 
 uint32_t pmu_mmio_write(uint32_t addr, uint32_t val)
@@ -316,8 +430,53 @@ int pmu_mmio_wait(uint32_t addr, uint32_t wait_mask, uint32_t wait_val,
     return (timeout < tries) ? 0 : -1;
 }
 
-#ifdef WOLFBOOT_ZYNQMP_CSU
+#ifdef WOLFBOOT_ZYNQMP_FSBL_SEC
+/* Read-only dump of the device eFuse cache (loaded by the BootROM at power-on)
+ * directly from the eFuse controller. As the FSBL wolfBoot is at EL3, so the
+ * cache registers are read via pmu_mmio_read(), which is direct MMIO here (no
+ * PMU/ATF). No eFuse programming is performed. */
+void zynqmp_efuse_dump(void)
+{
+    uint32_t status, sec, chash, aux;
+    int i;
 
+    status = pmu_mmio_read(ZYNQMP_EFUSE_STATUS);
+    if ((status & ZYNQMP_EFUSE_STATUS_CACHE_DONE) == 0) {
+        wolfBoot_printf("eFuse: cache not loaded (STATUS 0x%08x)\n", status);
+        return;
+    }
+
+    sec   = pmu_mmio_read(ZYNQMP_EFUSE_SEC_CTRL);
+    chash = pmu_mmio_read(ZYNQMP_EFUSE_PUF_CHASH);
+    aux   = pmu_mmio_read(ZYNQMP_EFUSE_PUF_AUX);
+
+    wolfBoot_printf("eFuse SEC_CTRL 0x%08x:%s%s%s%s%s%s\n", sec,
+        (sec & ZYNQMP_EFUSE_SEC_CTRL_RSA_EN)     ? " RSA_EN"       : "",
+        (sec & ZYNQMP_EFUSE_SEC_CTRL_ENC_ONLY)   ? " ENC_ONLY"     : "",
+        (sec & ZYNQMP_EFUSE_SEC_CTRL_JTAG_DIS)   ? " JTAG_DIS"     : "",
+        (sec & ZYNQMP_EFUSE_SEC_CTRL_PPK0_INVLD) ? " PPK0_REVOKED" : "",
+        (sec & ZYNQMP_EFUSE_SEC_CTRL_PPK0_WRLK)  ? " PPK0_WRLK"    : "",
+        (sec & ZYNQMP_EFUSE_SEC_CTRL_AES_RDLK)   ? " AES_RDLK"     : "");
+    wolfBoot_printf("eFuse PUF CHASH 0x%08x AUX 0x%08x\n", chash, aux);
+
+    wolfBoot_printf("eFuse PPK0 hash:");
+    for (i = 0; i < 12; i++) {
+        wolfBoot_printf(" %08x",
+            pmu_mmio_read(ZYNQMP_EFUSE_PPK0_0 + (uint32_t)(i * 4)));
+    }
+    wolfBoot_printf("\n");
+}
+#endif /* WOLFBOOT_ZYNQMP_FSBL_SEC */
+
+/* CSU engine access (eFuse/PUF/AES/DMA + SHA3 HAL). Compiled when the CSU is
+ * the hash provider (WOLFBOOT_ZYNQMP_CSU, HW_SHA3=1) OR for the FSBL security
+ * features (WOLFBOOT_ZYNQMP_FSBL_SEC). The CSU SHA3 HAL below is CSU-only: in
+ * FSBL_SEC builds hashing stays in software, so the HAL must not be compiled
+ * (it would multiply-define wc_Sha3_384_*). PUF/AES/DMA reach the CSU via
+ * pmu_mmio_read/write, which is direct MMIO in FSBL mode. */
+#if defined(WOLFBOOT_ZYNQMP_CSU) || defined(WOLFBOOT_ZYNQMP_FSBL_SEC)
+
+#ifdef WOLFBOOT_ZYNQMP_CSU
 #ifdef WOLFBOOT_HASH_SHA3_384
 #include <wolfssl/wolfcrypt/sha3.h>
 #define XSECURE_SHA3_INIT   1U
@@ -361,10 +520,11 @@ void wc_Sha3_384_Free(wc_Sha3* sha)
 }
 #else
 #   error HW_SHA3=1 only supported with HASH=SHA3
-#endif
+#endif /* WOLFBOOT_HASH_SHA3_384 */
+#endif /* WOLFBOOT_ZYNQMP_CSU (SHA3 HAL) */
 
 /* CSU PUF */
-#ifdef CSU_PUF_ROT
+#if defined(CSU_PUF_ROT) || defined(WOLFBOOT_ZYNQMP_FSBL_SEC)
 /* 1544 bytes is fixed size for boot header used by CSU ROM */
 #define CSU_PUF_SYNDROME_WORDS 386
 #ifndef CSU_PUF_REG_TRIES
@@ -458,7 +618,7 @@ int csu_puf_regeneration(uint32_t* syndrome, uint32_t chash, uint32_t aux)
 
     return ret;
 }
-#endif /* CSU_PUF_ROT */
+#endif /* CSU_PUF_ROT || WOLFBOOT_ZYNQMP_FSBL_SEC */
 
 #define CSU_AES_TIMEOUT 150000
 #define CSU_DMA_TIMEOUT 300000000U
@@ -506,17 +666,27 @@ static int csu_dma_config(int ch, int doSwap)
     return ret;
 }
 
-/* AES GCM Encrypt or Decrypt with Device Key setup by CSU ROM */
-/* Output must also have room for updated IV at end */
-#define AES_GCM_TAG_SZ 12
-int csu_aes(int enc, const uint8_t* iv, const uint8_t* in, uint8_t* out, uint32_t sz)
+/* AES-GCM engine sizes (Xilinx CSU): 16-byte IV block and 16-byte GCM tag. */
+#define CSU_AES_IV_SZ      16
+#define CSU_AES_GCM_TAG_SZ 16
+/* AES-GCM with a selectable key source. keySrc = CSU_AES_KEY_SRC_KUP (user key
+ * from kupKey, 32 bytes) or CSU_AES_KEY_SRC_DEVICE_KEY (kupKey ignored).
+ *   Encrypt: in = plaintext (sz),          out = ciphertext||tag (sz+16).
+ *   Decrypt: in = ciphertext||tag (sz+16), out = plaintext (sz); the CSU GCM
+ *            tag is enforced (GCM_TAG_PASS). */
+int csu_aes_ex(int enc, const uint8_t* iv, const uint8_t* in, uint8_t* out,
+    uint32_t sz, int keySrc, const uint8_t* kupKey)
 {
     int ret;
+    uint32_t i, status;
 
-    /* Flush data cache for variables used */
-    flush_dcache_range((unsigned long)iv,  (unsigned long)iv + AES_GCM_TAG_SZ);
-    flush_dcache_range((unsigned long)in,  (unsigned long)in);
-    flush_dcache_range((unsigned long)out, (unsigned long)out + AES_GCM_TAG_SZ);
+    /* Clean inputs and the output region to the point of coherency for the
+     * non-coherent CSU DMA. */
+    flush_dcache_range((unsigned long)iv, (unsigned long)iv + CSU_AES_IV_SZ);
+    flush_dcache_range((unsigned long)in,
+        (unsigned long)in + sz + CSU_AES_GCM_TAG_SZ);
+    flush_dcache_range((unsigned long)out,
+        (unsigned long)out + sz + CSU_AES_GCM_TAG_SZ);
 
     /* Configure SSS for DMA <-> AES */
     ret = pmu_mmio_write(CSU_SSS_CFG,
@@ -525,47 +695,77 @@ int csu_aes(int enc, const uint8_t* iv, const uint8_t* in, uint8_t* out, uint32_
     /* Reset AES (set and clear) */
     if (ret == 0)
         ret = csu_aes_reset();
-    /* Setup AES GCM Key (use device key) */
+    /* For a user key, load the 32-byte KUP (big-endian words) before key load */
+    if (ret == 0 && keySrc == CSU_AES_KEY_SRC_KUP && kupKey != NULL) {
+        for (i = 0; i < 8 && ret == 0; i++) {
+            uint32_t w = ((uint32_t)kupKey[i*4]   << 24) |
+                         ((uint32_t)kupKey[i*4+1] << 16) |
+                         ((uint32_t)kupKey[i*4+2] <<  8) |
+                         ((uint32_t)kupKey[i*4+3]);
+            ret = pmu_mmio_write(CSU_AES_KUP + (i*4), w);
+        }
+    }
+    /* Select and load the AES key */
     if (ret == 0)
-        ret = pmu_mmio_write(CSU_AES_KEY_SRC, CSU_AES_KEY_SRC_DEVICE_KEY);
-    /* Trigger key load */
+        ret = pmu_mmio_write(CSU_AES_KEY_SRC, (uint32_t)keySrc);
     if (ret == 0)
         ret = pmu_mmio_write(CSU_AES_KEY_LOAD, 1);
-    /* Wait till key init done */
     if (ret == 0)
         ret = pmu_mmio_wait(CSU_AES_STATUS, CSU_AES_STATUS_KEY_INIT_DONE,
             CSU_AES_STATUS_KEY_INIT_DONE, CSU_AES_TIMEOUT);
-    /* Enable DMA byte swapping */
+    /* Encrypt/decrypt config and byte-swap on both DMA channels */
+    if (ret == 0)
+        ret = pmu_mmio_write(CSU_AES_CFG, enc);
     if (ret == 0)
         ret = csu_dma_config(CSUDMA_CH_SRC, 1);
     if (ret == 0)
         ret = csu_dma_config(CSUDMA_CH_DST, 1);
-    /* Set encrypt or decrypt */
-    if (ret == 0)
-        ret = pmu_mmio_write(CSU_AES_CFG, enc);
-    /* Issue start and wait for DMA IV and data */
-    if (ret == 0)
-        ret = pmu_mmio_write(CSU_AES_START_MSG, 1);
-    /* Send IV with byte swap (not last) */
-    if (ret == 0)
-        ret = csu_dma_transfer(CSUDMA_CH_SRC,
-            (uintptr_t)iv, AES_GCM_TAG_SZ, 0);
-    /* wait for IV to send and cear interrupt */
-    if (ret == 0)
-        ret = csu_dma_wait_done(CSUDMA_CH_SRC);
-    /* Setup data to recieve */
-    if (ret == 0)
-        ret = csu_dma_transfer(CSUDMA_CH_DST,
-            (uintptr_t)out, sz + AES_GCM_TAG_SZ, 0);
-    /* Send data */
-    if (ret == 0)
-        ret = csu_dma_transfer(CSUDMA_CH_SRC,
-            (uintptr_t)in, sz, CSUDMA_SIZE_LAST_WORD);
-    /* Wait for DMA to complete and clear */
-    if (ret == 0)
-        ret = csu_dma_wait_done(CSUDMA_CH_SRC);
-    if (ret == 0)
-        ret = csu_dma_wait_done(CSUDMA_CH_DST);
+
+    if (enc == CSU_AES_CFG_ENC) {
+        /* DST receives ciphertext||tag; SRC sends IV then plaintext (last). */
+        if (ret == 0)
+            ret = pmu_mmio_write(CSU_AES_START_MSG, 1);
+        if (ret == 0)
+            ret = csu_dma_transfer(CSUDMA_CH_SRC, (uintptr_t)iv,
+                CSU_AES_IV_SZ, 0);
+        if (ret == 0)
+            ret = csu_dma_wait_done(CSUDMA_CH_SRC);
+        if (ret == 0)
+            ret = csu_dma_transfer(CSUDMA_CH_DST, (uintptr_t)out,
+                sz + CSU_AES_GCM_TAG_SZ, 0);
+        if (ret == 0)
+            ret = csu_dma_transfer(CSUDMA_CH_SRC, (uintptr_t)in, sz,
+                CSUDMA_SIZE_LAST_WORD);
+        if (ret == 0)
+            ret = csu_dma_wait_done(CSUDMA_CH_SRC);
+        if (ret == 0)
+            ret = csu_dma_wait_done(CSUDMA_CH_DST);
+    }
+    else {
+        /* DST receives plaintext (sz); SRC sends IV, ciphertext (not last),
+         * then the 16-byte GCM tag (at in+sz) as the last transfer. */
+        if (ret == 0)
+            ret = csu_dma_transfer(CSUDMA_CH_DST, (uintptr_t)out, sz, 0);
+        if (ret == 0)
+            ret = pmu_mmio_write(CSU_AES_START_MSG, 1);
+        if (ret == 0)
+            ret = csu_dma_transfer(CSUDMA_CH_SRC, (uintptr_t)iv,
+                CSU_AES_IV_SZ, 0);
+        if (ret == 0 && csu_dma_wait_done(CSUDMA_CH_SRC) != 0)
+            ret = -10; /* IV transfer timeout */
+        if (ret == 0)
+            ret = csu_dma_transfer(CSUDMA_CH_SRC, (uintptr_t)in, sz,
+                CSUDMA_SIZE_LAST_WORD);
+        if (ret == 0 && csu_dma_wait_done(CSUDMA_CH_SRC) != 0)
+            ret = -11; /* ciphertext transfer timeout */
+        if (ret == 0)
+            ret = csu_dma_transfer(CSUDMA_CH_SRC, (uintptr_t)(in + sz),
+                CSU_AES_GCM_TAG_SZ, CSUDMA_SIZE_LAST_WORD);
+        if (ret == 0 && csu_dma_wait_done(CSUDMA_CH_SRC) != 0)
+            ret = -12; /* GCM tag transfer timeout */
+        /* Decrypt output drains with AES-done (below); no DST-channel wait. */
+    }
+
     /* Disable DMA byte swapping */
     if (ret == 0)
         ret = csu_dma_config(CSUDMA_CH_SRC, 0);
@@ -575,7 +775,21 @@ int csu_aes(int enc, const uint8_t* iv, const uint8_t* in, uint8_t* out, uint32_
     if (ret == 0)
         ret = pmu_mmio_wait(CSU_AES_STATUS, CSU_AES_STATUS_BUSY,
             0, CSU_AES_TIMEOUT);
+    /* Invalidate the DMA-written output so the CPU reads fresh data */
+    flush_dcache_range((unsigned long)out,
+        (unsigned long)out + sz + CSU_AES_GCM_TAG_SZ);
+    /* On decrypt, enforce the GCM tag check */
+    if (ret == 0 && enc == CSU_AES_CFG_DEC) {
+        status = pmu_mmio_read(CSU_AES_STATUS);
+        if ((status & CSU_AES_STATUS_GCM_TAG_PASS) == 0)
+            ret = -3; /* GCM tag mismatch */
+    }
     return ret;
+}
+
+int csu_aes(int enc, const uint8_t* iv, const uint8_t* in, uint8_t* out, uint32_t sz)
+{
+    return csu_aes_ex(enc, iv, in, out, sz, CSU_AES_KEY_SRC_DEVICE_KEY, NULL);
 }
 
 /* zero the kup and expanded key */
@@ -597,15 +811,6 @@ int csu_aes_key_zero(void)
 int csu_init(void)
 {
     int ret = 0;
-#ifdef CSU_PUF_ROT
-    #if 0
-    uint32_t syndrome[CSU_PUF_SYNDROME_WORDS];
-    uint32_t chash=0, aux=0;
-    #if defined(DEBUG_CSU) && DEBUG_CSU >= 1
-    uint32_t idx;
-    #endif
-    #endif
-#endif
     uint32_t reg1 = pmu_mmio_read(CSU_IDCODE);
     uint32_t reg2 = pmu_mmio_read(CSU_VERSION);
 
@@ -641,56 +846,90 @@ int csu_init(void)
     pmu_efuse_read(ZYNQMP_EFUSE_PUF_AUX, &reg2, sizeof(reg2));
     wolfBoot_printf("eFuse PUF CHASH 0x%08x, AUX 0x%08x\n", reg1, reg2);
 
-    /* CSU PUF only supported with eFuses */
-    /* Keeping code for reference in future generations like Versal */
-    /* Red (sensitive key), Black (protected key), Grey (unknown) */
-    #if 0
-    memset(syndrome, 0, sizeof(syndrome));
-    ms = hal_timer_ms();
-    ret = csu_puf_register(syndrome, &chash, &aux);
-    wolfBoot_printf("CSU Register PUF %d: %dms\n", ret, hal_timer_ms() - ms);
-
-    if (ret == 0) {
-        ms = hal_timer_ms();
-        /* regenerate - load kek */
-        ret = csu_puf_regeneration(syndrome, chash, aux);
-        wolfBoot_printf("CSU Regen PUF %d: %dms\n", ret, hal_timer_ms() - ms);
-    }
-    if (ret == 0) {
-        /* Use CSU ROM device key and IV to encrypt the red key */
-        /* Possible PUF syndrome location 0xFFC30000 */
-    #if defined(DEBUG_CSU) && DEBUG_CSU >= 1
-        wolfBoot_printf("Red Key %d\n", sizeof(redKey));
-        for (idx=0; idx<sizeof(redKey); idx++) {
-            wolfBoot_printf("%02x", redKey[idx]);
-        }
-        wolfBoot_printf("\nBlack IV %d\n", sizeof(blackIv));
-        for (idx=0; idx<sizeof(blackIv); idx++) {
-            wolfBoot_printf("%02x", blackIv[idx]);
-        }
-        wolfBoot_printf("\n");
-    #endif
-
-        ret = csu_aes(CSU_AES_CFG_ENC, blackIv, redKey, blackKey, KEY_WRAP_SZ);
-
-    #if defined(DEBUG_CSU) && DEBUG_CSU >= 1
-        wolfBoot_printf("Black Key %d\n", KEY_WRAP_SZ);
-        for (idx=0; idx<KEY_WRAP_SZ; idx++) {
-            wolfBoot_printf("%02x", blackKey[idx]);
-        }
-        wolfBoot_printf("\nNew IV %d\n", AES_GCM_TAG_SZ);
-        for (idx=0; idx<AES_GCM_TAG_SZ; idx++) {
-            wolfBoot_printf("%02x", blackKey[KEY_WRAP_SZ+idx]);
-        }
-        wolfBoot_printf("\n");
-    #endif
-    #endif
-    }
+    /* PUF-based key wrap (register -> regenerate KEK -> AES-wrap the red key
+     * into a black key) is CSU/eFuse based and implemented by the FSBL security
+     * phase using csu_puf_register() / csu_puf_regeneration() / csu_aes(). */
 #endif
 
     return ret;
 }
-#endif /* WOLFBOOT_ZYNQMP_CSU */
+
+#ifdef WOLFBOOT_ZYNQMP_FSBL_SEC
+/* PUF register + regenerate self-test (bring-up). Registers the PUF to produce
+ * helper data (syndrome + CHASH + AUX), then regenerates the device KEK from
+ * it into the CSU key store. Confirming the regenerated KEK matches across a
+ * cold boot needs the AES engine (csu_aes); this validates the register/regen
+ * sequence itself. The syndrome is held in RAM (static); persisting it to eFuse
+ * PUF_SYN is the separate, gated eFuse-write step. */
+static uint32_t puf_syndrome[CSU_PUF_SYNDROME_WORDS];
+int zynqmp_puf_test(void)
+{
+    uint32_t chash = 0, aux = 0;
+    int ret;
+
+    memset(puf_syndrome, 0, sizeof(puf_syndrome));
+    ret = csu_puf_register(puf_syndrome, &chash, &aux);
+    wolfBoot_printf("PUF register: ret %d, CHASH 0x%08x AUX 0x%08x\n",
+        ret, (unsigned int)chash, (unsigned int)aux);
+    if (ret != 0) {
+        return ret;
+    }
+
+    ret = csu_puf_regeneration(puf_syndrome, chash, aux);
+    wolfBoot_printf("PUF regenerate (KEK): ret %d\n", ret);
+    return ret;
+}
+
+/* AES-GCM self-test with a user (KUP) key. Encrypts a fixed key/IV/plaintext
+ * (a known-answer vector) then decrypts it back, enforcing the CSU GCM tag on
+ * the decrypt. Prints the ciphertext+tag so it can also be checked against a
+ * software AES-256-GCM reference. eFuse-safe (KUP only; no device key, no
+ * eFuse access). */
+int zynqmp_aes_test(void)
+{
+    static const uint8_t key[32] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+        0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+        0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
+    };
+    static uint8_t XALIGNED(64) iv[CSU_AES_IV_SZ] = {
+        0xca,0xfe,0xba,0xbe,0xfa,0xce,0xdb,0xad,
+        0xde,0xad,0xbe,0xef,0x00,0x00,0x00,0x01
+    };
+    static uint8_t XALIGNED(64) pt[16] = {
+        0x54,0x68,0x65,0x20,0x77,0x6f,0x6c,0x66,
+        0x42,0x6f,0x6f,0x74,0x20,0x41,0x45,0x53
+    };
+    static uint8_t XALIGNED(64) ct[16 + CSU_AES_GCM_TAG_SZ];
+    static uint8_t XALIGNED(64) dec[16 + CSU_AES_GCM_TAG_SZ];
+    int ret, ok;
+
+    memset(ct, 0, sizeof(ct));
+    memset(dec, 0, sizeof(dec));
+
+    ret = csu_aes_ex(CSU_AES_CFG_ENC, iv, pt, ct, 16,
+        CSU_AES_KEY_SRC_KUP, key);
+    wolfBoot_printf("AES-KUP enc: ret %d CT %08x%08x%08x%08x tag %08x%08x%08x%08x\n",
+        ret,
+        *(uint32_t*)&ct[0], *(uint32_t*)&ct[4],
+        *(uint32_t*)&ct[8], *(uint32_t*)&ct[12],
+        *(uint32_t*)&ct[16], *(uint32_t*)&ct[20],
+        *(uint32_t*)&ct[24], *(uint32_t*)&ct[28]);
+    if (ret != 0)
+        return ret;
+
+    ret = csu_aes_ex(CSU_AES_CFG_DEC, iv, ct, dec, 16,
+        CSU_AES_KEY_SRC_KUP, key);
+    ok = (memcmp(dec, pt, 16) == 0);
+    wolfBoot_printf("AES-KUP dec: ret %d roundtrip %s\n", ret,
+        (ret == 0 && ok) ? "PASS" : "FAIL");
+    (void)csu_aes_key_zero();
+    return (ret == 0 && ok) ? 0 : -1;
+}
+#endif /* WOLFBOOT_ZYNQMP_FSBL_SEC */
+
+#endif /* WOLFBOOT_ZYNQMP_CSU || WOLFBOOT_ZYNQMP_FSBL_SEC */
 
 
 #ifdef USE_XQSPIPSU
@@ -861,6 +1100,22 @@ static inline int qspi_dmaisr_wait(uint32_t wait_mask, uint32_t wait_val)
         return -1;
     }
     return 0;
+}
+
+/* INVALIDATE-only D-cache maintenance (dc ivac) for a DMA-read destination --
+ * the correct post-DMA-read operation (matches Xil_DCacheInvalidateRange /
+ * dma_unmap DMA_FROM_DEVICE). flush_dcache_range() is dc CIVAC (clean +
+ * invalidate); its CLEAN step can write a speculatively-filled cache line back
+ * to DDR AFTER the DMA, clobbering the freshly-DMA'd data. Use this instead for
+ * the post-DMA step so nothing is ever written back over the DMA result. */
+static inline void qspi_dcache_inval(unsigned long start, unsigned long end)
+{
+    unsigned long a;
+    __asm__ volatile("dsb sy" ::: "memory");
+    for (a = (start & ~63UL); a < end; a += 64UL) {
+        __asm__ volatile("dc ivac, %0" : : "r"(a) : "memory");
+    }
+    __asm__ volatile("dsb sy" ::: "memory");
 }
 #endif
 
@@ -1078,6 +1333,87 @@ static int qspi_transfer(QspiDev_t* pDev,
     }
 
     /* RX Data */
+#ifndef GQSPI_MODE_IO
+    /* Single-DMA RX path: arm ONE DMA for the entire destination buffer, then
+     * issue as many gen-FIFO RX (EXP) entries as needed to clock all the bytes.
+     * Every gen-FIFO entry feeds the SAME ongoing DMA, so the SPI read streams
+     * continuously across entries -- matching the Xilinx xqspipsu driver. The
+     * previous code stopped and re-armed the DMA (new GQSPIDMA_DST/SIZE) for
+     * each chunk; re-arming mid-stream desynced the read so all but one chunk
+     * landed as zeros (a delay between chunks hid it by letting the FIFO drain).
+     * Requires a DMA-aligned dst and a 4-byte-multiple size; small unaligned or
+     * odd-length reads fall back to the bounce buffer below. */
+    if (ret == GQSPI_CODE_SUCCESS && rxData && rxSz > 0 &&
+        (((size_t)rxData & (QQSPI_DMA_ALIGN-1)) == 0) && ((rxSz & 3) == 0)) {
+        uint32_t rxbase;
+        uint32_t tc, expo, imm;
+
+        rxbase = reg_genfifo & ~(GQSPI_GEN_FIFO_TX | GQSPI_GEN_FIFO_IMM_MASK |
+                                 GQSPI_GEN_FIFO_EXP_MASK);
+        rxbase |= (GQSPI_GEN_FIFO_RX | GQSPI_GEN_FIFO_DATA_XFER);
+        rxbase |= (pDev->stripe & GQSPI_GEN_FIFO_STRIPE);
+
+        /* Arm the DMA once for the whole transfer. */
+        GQSPIDMA_ISR = GQSPIDMA_ISR_DONE;
+        (void)GQSPIDMA_ISR;
+        GQSPIDMA_DST = ((uintptr_t)rxData & 0xFFFFFFFF);
+        GQSPIDMA_DST_MSB = (((uintptr_t)rxData >> 32) & 0xFFF);
+        GQSPIDMA_SIZE = rxSz;
+        GQSPIDMA_IER = GQSPIDMA_ISR_DONE;
+#ifndef ZYNQMP_QSPI_COHERENT
+        flush_dcache_range((unsigned long)rxData,
+            (unsigned long)rxData + rxSz);
+#endif
+
+        /* Issue gen-FIFO RX entries to clock all rxSz bytes, EXACTLY as the
+         * Xilinx xqspipsu driver does: one EXP entry per set bit of the byte
+         * count, in ASCENDING exponent order (2^8, 2^9, ...), then a final IMM
+         * entry for the low-byte remainder. The previous code emitted the
+         * largest power of two FIRST (a single 2^17 = 128KB EXP entry up front),
+         * which made the first 128KB stream in as zeros and desynced the rest.
+         * qspi_gen_fifo_write blocks on GEN_FIFO_NOT_FULL; the controller
+         * (auto-start, DMA mode) processes the entries into the one DMA. */
+        tc = rxSz;
+        expo = 8;                /* 2^8 = 256, smallest EXP unit */
+        imm = rxSz & 0xFFU;      /* low-byte remainder -> IMM entry */
+        while (tc != 0 && ret == GQSPI_CODE_SUCCESS) {
+            if (tc & 0x100U) {   /* bit 'expo' of the original byte count */
+                ret = qspi_gen_fifo_write(rxbase | GQSPI_GEN_FIFO_EXP_MASK |
+                                          GQSPI_GEN_FIFO_IMM(expo));
+            }
+            tc >>= 1;
+            expo++;
+        }
+        if (ret == GQSPI_CODE_SUCCESS && imm != 0) {
+            ret = qspi_gen_fifo_write((rxbase & ~GQSPI_GEN_FIFO_EXP_MASK) |
+                                      GQSPI_GEN_FIFO_IMM(imm));
+        }
+
+        if (ret == GQSPI_CODE_SUCCESS) {
+            if (qspi_dmaisr_wait(GQSPIDMA_ISR_DONE, 0))
+                return GQSPI_CODE_TIMEOUT;
+            if (qspi_isr_wait(GQSPI_IXR_GEN_FIFO_EMPTY, 0))
+                return GQSPI_CODE_TIMEOUT;
+            GQSPIDMA_ISR = GQSPIDMA_ISR_DONE;
+            (void)GQSPIDMA_ISR;
+            GQSPIDMA_STS = GQSPIDMA_STS | GQSPIDMA_STS_WTC; /* clear WTC (W1C) */
+#ifndef ZYNQMP_QSPI_COHERENT
+            /* DMA is not cache-coherent: INVALIDATE (not clean+invalidate) the
+             * destination so the CPU reads the freshly DMA'd data and nothing
+             * is written back over it. */
+            qspi_dcache_inval((unsigned long)rxData,
+                (unsigned long)rxData + rxSz);
+#else
+            /* Coherent DMA (CCI): a barrier suffices; no maintenance. */
+            __asm__ volatile("dsb sy" ::: "memory");
+#endif
+        }
+        rxSz = 0;
+    }
+#endif
+
+    /* Bounce / I/O fallback: small unaligned or odd-length reads (e.g. flash ID
+     * and status). Per-entry transfer through the aligned bounce buffer. */
     while (ret == GQSPI_CODE_SUCCESS && rxData && rxSz > 0) {
         /* Enable RX */
         reg_genfifo &= ~(GQSPI_GEN_FIFO_TX | GQSPI_GEN_FIFO_IMM_MASK |
@@ -1099,6 +1435,8 @@ static int qspi_transfer(QspiDev_t* pDev,
             xferSz = qspi_calc_exp(xferSz, &reg_genfifo);
         }
 
+        GQSPIDMA_ISR = GQSPIDMA_ISR_DONE;
+        (void)GQSPIDMA_ISR;
         GQSPIDMA_DST = ((uintptr_t)dmarxptr & 0xFFFFFFFF);
         GQSPIDMA_DST_MSB = ((uintptr_t)dmarxptr >> 32);
         GQSPIDMA_SIZE = xferSz;
@@ -1106,14 +1444,6 @@ static int qspi_transfer(QspiDev_t* pDev,
         flush_dcache_range((unsigned long)dmarxptr,
             (unsigned long)dmarxptr + xferSz);
     #endif
-
-#if defined(DEBUG_ZYNQ) && DEBUG_ZYNQ >= 2
-    #ifndef GQSPI_MODE_IO
-        wolfBoot_printf("DMA: ptr %p, xferSz %d\n", dmarxptr, xferSz);
-    #else
-        wolfBoot_printf("IO: ptr %p, xferSz %d\n", rxData, xferSz);
-    #endif
-#endif
 
         /* Submit general FIFO operation */
         ret = qspi_gen_fifo_write(reg_genfifo);
@@ -1133,7 +1463,14 @@ static int qspi_transfer(QspiDev_t* pDev,
         if (qspi_dmaisr_wait(GQSPIDMA_ISR_DONE, 0)) {
             return GQSPI_CODE_TIMEOUT;
         }
+        if (qspi_isr_wait(GQSPI_IXR_GEN_FIFO_EMPTY, 0)) {
+            return GQSPI_CODE_TIMEOUT;
+        }
         GQSPIDMA_ISR = GQSPIDMA_ISR_DONE; /* clear DMA interrupt */
+        (void)GQSPIDMA_ISR;               /* read-back: force W1C to post */
+        GQSPIDMA_STS = GQSPIDMA_STS | GQSPIDMA_STS_WTC; /* clear WTC (W1C) */
+        qspi_dcache_inval((unsigned long)dmarxptr,
+            (unsigned long)dmarxptr + xferSz);
         /* adjust xfer sz */
         if (xferSz > rxSz)
             xferSz = rxSz;
@@ -1141,13 +1478,6 @@ static int qspi_transfer(QspiDev_t* pDev,
         if (dmarxptr != rxData) {
             memcpy(rxData, dmarxptr, xferSz);
         }
-        #if defined(DEBUG_ZYNQ) && DEBUG_ZYNQ >= 3
-        if (xferSz <= 1024) {
-            for (uint32_t i=0; i<xferSz; i+=4) {
-                wolfBoot_printf("RXD=%08x\n", *((uint32_t*)&rxData[i]));
-            }
-        }
-        #endif
     #endif
 
         /* offset size and buffer */
@@ -1156,6 +1486,18 @@ static int qspi_transfer(QspiDev_t* pDev,
     }
 
     qspi_cs(pDev, 0); /* Deselect Slave */
+    /* Wait for the generic FIFO to drain (including the CS-deassert entry just
+     * queued) BEFORE disabling the controller. Otherwise GQSPI_EN=0 can tear
+     * the controller down while the CS-deassert is still pending, leaving the
+     * flash selected / mid-stream, and the NEXT transfer's command+address is
+     * mis-clocked -- back-to-back reads then return shifted/zero data (a delay
+     * between transfers hid this by giving the FIFO time to finish). This
+     * applies in PIO (GQSPI_MODE_IO) mode too: gspi_fifo_rx() returns once the
+     * RX data words are drained, but the CS-deassert entry qspi_cs() just
+     * queued is still in the generic FIFO. Disabling the controller without
+     * waiting tears down mid-stream, so a SINGLE PIO read works but the
+     * back-to-back per-chunk reads of a body load mis-clock and hang. */
+    (void)qspi_isr_wait(GQSPI_IXR_GEN_FIFO_EMPTY, 0);
     GQSPI_EN = 0; /* Disable Device */
 
     return ret;
@@ -1400,7 +1742,6 @@ static int qspi_flash_reset(QspiDev_t* dev)
     return ret;
 }
 
-/* QSPI functions */
 void qspi_init(void)
 {
     int ret;
@@ -1525,14 +1866,38 @@ void qspi_init(void)
     GQSPI_DATA_DLY_ADJ = 0;
 #endif
 
+#if defined(DEBUG_ZYNQ)
+    /* Verify the QSPI clock + tap-delay assumptions: QSPI_REF_CTRL gives the
+     * actual ref-clock divisors (banner "Ref=125MHz" is only an assumption);
+     * read back the tap registers to confirm the EL3 writes actually landed. */
+    wolfBoot_printf("QSPI clk: REF_CTRL=0x%x TAPDLY=0x%x LPBK=0x%x DATADLY=0x%x\n",
+        (uint32_t)QSPI_REF_CTRL, (uint32_t)IOU_TAPDLY_BYPASS,
+        (uint32_t)GQSPI_LPBK_DLY_ADJ, (uint32_t)GQSPI_DATA_DLY_ADJ);
+#endif
+
     /* Initialize hardware parameters for Threshold and Interrupts */
     GQSPI_TX_THRESH = 1;
     GQSPI_RX_THRESH = 1;
     GQSPI_GF_THRESH = 31;
 
-    /* Reset DMA */
+    /* Reset DMA. NOTE: write only DST_CTRL, exactly like the Xilinx baremetal
+     * (xqspipsu) FSBL driver and the Linux spi-zynqmp-gqspi driver -- BOTH of
+     * which read large images from this part reliably and NEITHER of which ever
+     * writes QSPIDMA_DST_CTRL2 (0x824). CTRL2 holds the AWCACHE bits and the
+     * RAM_EMASA/EMASB FIFO-RAM timing-margin bits; overriding the silicon's
+     * margins corrupts sustained DMA transfers while leaving small ones intact.
+     * wolfBoot previously wrote CTRL2=0x081BFFF8 here, which is the suspected
+     * root cause of the large-QSPI-read-to-DDR corruption. */
     GQSPIDMA_CTRL = GQSPIDMA_CTRL_DEF;
-    GQSPIDMA_CTRL2 = GQSPIDMA_CTRL2_DEF;
+#if defined(DEBUG_ZYNQ)
+    wolfBoot_printf("GQSPIDMA CTRL2 (left by boot): 0x%x\n", GQSPIDMA_CTRL2);
+#endif
+    /* Clear the DMA Write-Transfer-Count (DST_STS.WTC, W1C). The Linux/Xilinx
+     * drivers do this; wolfBoot never did. WTC is a saturating count of issued
+     * DMA write transfers -- if it is not cleared it saturates after the first
+     * transfer and the QSPIDMA mis-handles every SUBSEQUENT transfer (the body
+     * load is many transfers, hence first-works/rest-corrupt). */
+    GQSPIDMA_STS = GQSPIDMA_STS | GQSPIDMA_STS_WTC;
     GQSPIDMA_IER = GQSPIDMA_ISR_ALL_MASK;
 
     GQSPI_EN = 1; /* Enable Device */
@@ -1634,16 +1999,99 @@ uint64_t hal_timer_ms(void)
     return val;
 }
 
+#ifdef WOLFBOOT_ZYNQMP_FSBL
+/* wolfBoot's psu_init wrapper (hal/zynqmp_psu_shim.c): runs the board
+ * (XSA-generated) psu_init sub-stages but fixes the system timestamp counter
+ * to 100MHz after clock init and before DDR training, so the training settle
+ * delays are accurate. Returns 0 on success. */
+extern int zynqmp_psu_init(void);
+/* Board file's complete psu_init() (the one the Xilinx FSBL uses). Selectable
+ * for A/B testing against our wrapper via -DZYNQMP_USE_BOARD_PSU_INIT. */
+extern int psu_init(void);
+#endif
+
 /* public HAL functions */
 void hal_init(void)
 {
     const char* bootMsg = "\nwolfBoot Secure Boot\n";
+
+#ifdef WOLFBOOT_ZYNQMP_FSBL
+    /* wolfBoot is the FSBL: bring up the PLLs, DDR, MIO mux and clocks before
+     * any DDR, UART, QSPI or SD access. Until this runs only the OCM (where
+     * wolfBoot executes) and the system counter are available. */
+#ifdef ZYNQMP_USE_BOARD_PSU_INIT
+    (void)psu_init();        /* board's complete psu_init (FSBL's) */
+#else
+    (void)zynqmp_psu_init(); /* our wrapper */
+#endif
+#endif
 
 #ifdef DEBUG_UART
     uart_init();
 #endif
     wolfBoot_printf(bootMsg);
     wolfBoot_printf("Current EL: %d\n", current_el());
+
+#ifdef WOLFBOOT_ZYNQMP_FSBL
+    {
+        extern unsigned long zynqmp_dbg_cntfrq_boot, zynqmp_dbg_cntfrq_used;
+        extern unsigned int zynqmp_dbg_ts_ctrl, zynqmp_dbg_iopll_ctrl;
+        wolfBoot_printf("Timer: CNTFRQ boot=%d used=%d\n",
+            (int)zynqmp_dbg_cntfrq_boot, (int)zynqmp_dbg_cntfrq_used);
+        wolfBoot_printf("Clk: TS_REF_CTRL=0x%x IOPLL_CTRL=0x%x\n",
+            zynqmp_dbg_ts_ctrl, zynqmp_dbg_iopll_ctrl);
+    }
+    /* DDR controller + PHY training status (MMIO reads, safe even if DDR
+     * memory itself is marginal). DDRC STAT[2:0] operating_mode: 1=normal.
+     * DDR PHY PGSR0 (0xFD080030): bit0 IDONE plus per-step done bits
+     * [11:1]=PL/DC/ZC/DI/WL/QSG/WLA/RD/WD/RE/WE; ERR bits [27:20]=ZC/WL/QSG/
+     * WLA/RD/WD/RE/WE, [28] IVERR, [29] VERR. Nonzero ERR bits => cold-boot
+     * DDR PHY training FAILED. */
+    {
+        volatile unsigned int* DDRC_STAT  = (volatile unsigned int*)0xFD070004UL;
+        volatile unsigned int* PHY_PGSR0  = (volatile unsigned int*)0xFD080030UL;
+        volatile unsigned int* PHY_PGSR1  = (volatile unsigned int*)0xFD080034UL;
+        volatile unsigned int* PHY_PGCR0  = (volatile unsigned int*)0xFD080010UL;
+        unsigned int pgsr0 = *PHY_PGSR0;
+        wolfBoot_printf("DDR: STAT=0x%x PGSR0=0x%x PGSR1=0x%x PGCR0=0x%x\n",
+            *DDRC_STAT, pgsr0, *PHY_PGSR1, *PHY_PGCR0);
+        wolfBoot_printf("DDR: PHY train %s (ERR mask 0x%x)\n",
+            (pgsr0 & 0x3FF00000U) ? "FAIL" : "ok",
+            (pgsr0 & 0x3FF00000U));
+    }
+    /* DDR clock chain: DPLL (CRF_APB 0xFD1A0000) drives the DDR clock. A wrong
+     * DPLL frequency or DDR_CTRL divisor mis-calibrates the read-DQS gate
+     * (round-trip delay in clock units) so reads fail while writes still work.
+     * PLL_STATUS bit1 = DPLL_LOCK. Also dump DDRC-derived read-path regs. */
+    {
+        volatile unsigned int* DPLL_CTRL = (volatile unsigned int*)0xFD1A002CUL;
+        volatile unsigned int* DPLL_CFG  = (volatile unsigned int*)0xFD1A0030UL;
+        volatile unsigned int* PLL_STAT  = (volatile unsigned int*)0xFD1A0044UL;
+        volatile unsigned int* DDR_CTRL  = (volatile unsigned int*)0xFD1A0080UL;
+        wolfBoot_printf("CLKMARK9 DPLL_CTRL=0x%x DPLL_CFG=0x%x PLL_STATUS=0x%x DDR_CTRL=0x%x\n",
+            *DPLL_CTRL, *DPLL_CFG, *PLL_STAT, *DDR_CTRL);
+    }
+#endif
+
+#ifdef ZYNQMP_ENABLE_CCI
+    /* Enable CCI-400 snoop + DVM message receipt on the APU ACE slave
+     * interfaces (S3/S4) so the A53 cluster's Inner-Shareable cacheable
+     * traffic completes coherently to DDR. ATF/BL31 normally does this; as the
+     * FSBL replacement wolfBoot must do it itself before any large cacheable
+     * CPU access to DDR (e.g. the integrity-check SHA). CCI-400 GPV base is
+     * 0xFD6E0000; SIn Snoop Control Register at 0x1000*(n+1); Status[0] is the
+     * change-pending bit. */
+    {
+        volatile unsigned int* CCI_STAT = (volatile unsigned int*)0xFD6E0010UL;
+        volatile unsigned int* CCI_S3   = (volatile unsigned int*)0xFD6E4000UL;
+        volatile unsigned int* CCI_S4   = (volatile unsigned int*)0xFD6E5000UL;
+        *CCI_S3 = 0x00000003U;             /* snoop enable | DVM enable */
+        while ((*CCI_STAT & 0x1U) != 0U) { /* wait change complete */ }
+        *CCI_S4 = 0x00000003U;
+        while ((*CCI_STAT & 0x1U) != 0U) { }
+        wolfBoot_printf("CCI: snoop+DVM enabled on S3/S4\n");
+    }
+#endif
 
 #ifndef WOLFBOOT_REPRODUCIBLE_BUILD
     wolfBoot_printf("Build: %s %s\n", __DATE__, __TIME__);
@@ -1653,6 +2101,12 @@ void hal_init(void)
     qspi_init();
 #endif
 
+#ifndef WOLFBOOT_ZYNQMP_FSBL
+    /* pmu_get_version()/csu_init() query the PMU firmware over an SMC to the
+     * EL3 SIP service provided by ARM Trusted Firmware. When wolfBoot itself
+     * is the FSBL running at EL3 there is no ATF below it, so these are skipped
+     * (the QSPI tap-delay path in qspi_init() already falls back to direct
+     * MMIO when current_el() > 2). */
     pmuVer = pmu_get_version();
     wolfBoot_printf("PMUFW Ver: %d.%d\n",
         (int)(pmuVer >> 16), (int)(pmuVer & 0xFFFF));
@@ -1664,6 +2118,24 @@ void hal_init(void)
     else {
         wolfBoot_printf("Skipping CSU Init (PMUFW not found)\n");
     }
+#endif
+#endif /* !WOLFBOOT_ZYNQMP_FSBL */
+
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(WOLFBOOT_ZYNQMP_PM_CFG)
+    /* As the FSBL, hand the PMU firmware its configuration object so it grants
+     * the APU access to the SoC power/clock/reset/peripheral nodes. Without
+     * this the downstream Linux drivers fail probe with -EACCES. */
+    (void)zynqmp_pm_set_configuration();
+#endif
+
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(WOLFBOOT_ZYNQMP_FSBL_SEC)
+    zynqmp_efuse_dump();
+#ifdef WOLFBOOT_ZYNQMP_PUF_SELFTEST
+    (void)zynqmp_puf_test();
+#endif
+#ifdef WOLFBOOT_ZYNQMP_AES_SELFTEST
+    (void)zynqmp_aes_test();
+#endif
 #endif
 }
 
@@ -1850,36 +2322,79 @@ int RAMFUNCTION ext_flash_write(uintptr_t address, const uint8_t *data, int len)
 
 int RAMFUNCTION ext_flash_read(uintptr_t address, uint8_t *data, int len)
 {
-    int ret;
+    int ret = 0;
     uint8_t cmd[8]; /* size multiple of uint32_t */
-    uint32_t idx = 0;
+    uint32_t idx;
+    uintptr_t qaddr;
+    int off = 0;
 
 #if defined(DEBUG_ZYNQ) && DEBUG_ZYNQ >= 2
     wolfBoot_printf("Flash Read: Addr 0x%x, Ptr %p, Len %d\n",
         address, data, len);
 #endif
 
-    if (mDev.stripe) {
-        /* For dual parallel the address divide by 2 */
-        address /= 2;
+    /* Issue the read as a sequence of SEPARATE, individually-addressed
+     * transfers, each sized to a single generic-FIFO RX entry: a power of two
+     * <= 4KB (one EXP entry) or the exact remainder when <= 255 (one IMM
+     * entry). The ZynqMP GQSPI controller corrupts reads whose data spans more
+     * than one RX gen-FIFO entry in a single continuous (one command+address)
+     * transfer -- the streamed bytes desync and come back as zeros/garbage,
+     * regardless of DMA chunking or settle delays. Re-issuing the read command
+     * with a fresh (incremented) address per chunk keeps every transfer to one
+     * entry, which is the only form this part reads reliably. A single small
+     * read (header, flash ID) already used one entry and always worked; this
+     * extends that reliable form to large reads (firmware body load). */
+    while (off < len) {
+        int rem = len - off;
+        int chunk;
+
+        if (rem <= 0xFF) {
+            chunk = rem;                 /* one IMM gen-FIFO entry */
+        }
+        else {
+            chunk = 0x1000;              /* one EXP entry, max 4KB */
+            while (chunk > rem)
+                chunk >>= 1;             /* largest power of two <= rem */
+        }
+#if defined(GQSPI_MODE_IO) && defined(ZYNQMP_QSPI_PIO_CHUNK)
+        /* PIO mode drains the RX FIFO by CPU. Cap each transfer to <= the
+         * controller RX FIFO depth so a single gen-FIFO entry can never
+         * overflow it (no backpressure dependence). 128 bytes uses an IMM
+         * entry and is half the 256-byte RX FIFO. */
+        if (chunk > ZYNQMP_QSPI_PIO_CHUNK)
+            chunk = ZYNQMP_QSPI_PIO_CHUNK;
+#endif
+
+        qaddr = address + (uintptr_t)off;
+        if (mDev.stripe) {
+            /* For dual parallel the per-chip address is half the combined. */
+            qaddr /= 2;
+        }
+
+        idx = 0;
+        memset(cmd, 0, sizeof(cmd));
+        cmd[idx++] = FLASH_READ_CMD;
+#if GQPI_USE_4BYTE_ADDR == 1
+        cmd[idx++] = ((qaddr >> 24) & 0xFF);
+#endif
+        cmd[idx++] = ((qaddr >> 16) & 0xFF);
+        cmd[idx++] = ((qaddr >> 8)  & 0xFF);
+        cmd[idx++] = ((qaddr >> 0)  & 0xFF);
+        ret = qspi_transfer(&mDev, cmd, idx, NULL, 0, data + off, chunk,
+            GQSPI_DUMMY_READ, mDev.mode);
+        if (ret != 0) {
+#if defined(DEBUG_ZYNQ) && DEBUG_ZYNQ >= 2
+            wolfBoot_printf("Flash Read: Ret %d at off %d\r\n", ret, off);
+#endif
+            return ret;
+        }
+        off += chunk;
     }
 
-    /* ------ Read Flash ------ */
-    memset(cmd, 0, sizeof(cmd));
-    cmd[idx++] = FLASH_READ_CMD;
-#if GQPI_USE_4BYTE_ADDR == 1
-    cmd[idx++] = ((address >> 24) & 0xFF);
-#endif
-    cmd[idx++] = ((address >> 16) & 0xFF);
-    cmd[idx++] = ((address >> 8)  & 0xFF);
-    cmd[idx++] = ((address >> 0)  & 0xFF);
-    ret = qspi_transfer(&mDev, cmd, idx, NULL, 0, data, len, GQSPI_DUMMY_READ,
-        mDev.mode);
 #if defined(DEBUG_ZYNQ) && DEBUG_ZYNQ >= 2
     wolfBoot_printf("Flash Read: Ret %d\r\n", ret);
 #endif
-
-    return (ret == 0) ? len : ret;
+    return len;
 }
 
 /* Issues a sector erase based on flash address */
@@ -2361,8 +2876,8 @@ void sdhci_platform_set_bus_mode(int is_emmc)
 /* DMA cache maintenance - called from sdhci_transfer() around SDMA operations.
  * The SDMA engine transfers data directly to/from physical memory, bypassing
  * the CPU's L1/L2 caches. We must ensure cache coherency:
- *   - Before DMA write (card←memory): clean D-cache so DMA reads correct data
- *   - After DMA read (card→memory): invalidate D-cache so CPU sees new data */
+ *   - Before DMA write (card <- memory): clean D-cache so DMA reads correct data
+ *   - After DMA read (card -> memory): invalidate D-cache so CPU sees new data */
 void sdhci_platform_dma_prepare(void *buf, uint32_t sz, int is_write)
 {
     uintptr_t addr;

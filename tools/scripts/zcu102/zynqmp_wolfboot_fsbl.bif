@@ -1,0 +1,23 @@
+// Boot BIF for wolfBoot as the ZynqMP FSBL REPLACEMENT (ZCU102).
+//
+// wolfBoot is the [bootloader] partition: the BootROM loads it into OCM and
+// enters it at EL3. There is NO zynqmp_fsbl.elf. PMUFW is still loaded by the
+// BootROM via [pmufw_image]. wolfBoot itself runs psu_init() and then loads +
+// verifies the downstream images (BL31, kernel, DTB) from its own QSPI/SD
+// partitions using wolfBoot signing keys, so they are NOT listed here.
+//
+// The same image works for QSPI and SD boot; the boot device is selected by
+// the ZCU102 boot-mode pins (SW6). See README for deployment.
+//
+// Usage:
+//   bootgen -arch zynqmp -image tools/scripts/zcu102/zynqmp_wolfboot_fsbl.bif \
+//           -w -o BOOT.BIN
+//
+// Required files (copy next to this BIF, or use full paths):
+//   wolfboot.elf  - wolfBoot, linked at OCM 0xFFFC0000 (built ZYNQMP_FSBL=1)
+//   pmufw.elf     - Platform Management Unit firmware (from PetaLinux/Vitis)
+the_ROM_image:
+{
+	[bootloader, destination_cpu=a53-0] wolfboot.elf
+	[pmufw_image] pmufw.elf
+}

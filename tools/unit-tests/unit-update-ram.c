@@ -287,6 +287,36 @@ START_TEST (test_ramboot_success)
 }
 END_TEST
 
+START_TEST (test_ramboot_overlap_predicate)
+{
+    /* wolfBoot occupies [0x1000, 0x2000) for these checks (the two-sided
+     * range-intersection used by wolfBoot_ramboot's overlap guard). */
+    const uintptr_t lo = 0x1000, hi = 0x2000;
+
+    /* No overlap: image entirely below, entirely above, or exactly adjacent. */
+    ck_assert_int_eq(ramboot_region_overlap(0x0100, 0x0900, lo, hi), 0);
+    ck_assert_int_eq(ramboot_region_overlap(0x3000, 0x4000, lo, hi), 0);
+    ck_assert_int_eq(ramboot_region_overlap(0x0800, 0x1000, lo, hi), 0); /* img_hi==wb_lo */
+    ck_assert_int_eq(ramboot_region_overlap(0x2000, 0x2800, lo, hi), 0); /* img_lo==wb_hi */
+
+    /* Overlap: straddle low edge, straddle high edge, image inside wolfBoot,
+     * wolfBoot inside image. */
+    ck_assert_int_ne(ramboot_region_overlap(0x0800, 0x1800, lo, hi), 0);
+    ck_assert_int_ne(ramboot_region_overlap(0x1800, 0x2800, lo, hi), 0);
+    ck_assert_int_ne(ramboot_region_overlap(0x1400, 0x1C00, lo, hi), 0);
+    ck_assert_int_ne(ramboot_region_overlap(0x0800, 0x2800, lo, hi), 0);
+
+    /* Unknown-origin fallback (wb_lo == 0): guard only that img is below wb_hi. */
+    ck_assert_int_ne(ramboot_region_overlap(0x0100, 0x0900, 0, hi), 0);
+    ck_assert_int_eq(ramboot_region_overlap(0x2000, 0x2800, 0, hi), 0);
+
+    /* img_hi overflow (header+size wrapped so img_hi < img_lo) is rejected
+     * conservatively as an overlap, regardless of the wolfBoot range. */
+    ck_assert_int_ne(ramboot_region_overlap(0x0800, 0x0400, lo, hi), 0);
+    ck_assert_int_ne(ramboot_region_overlap(0x3000, 0x0400, lo, hi), 0);
+}
+END_TEST
+
 
 START_TEST (test_sunnyday_noupdate)
 {
@@ -545,6 +575,7 @@ Suite *wolfboot_suite(void)
     TCase *ramboot_invalid_header = tcase_create("Ramboot invalid header");
     TCase *ramboot_oversize = tcase_create("Ramboot oversize");
     TCase *ramboot_success = tcase_create("Ramboot success");
+    TCase *ramboot_overlap = tcase_create("Ramboot overlap predicate");
     TCase *sunnyday_noupdate =
         tcase_create("Sunny day test with no update available");
     TCase *forward_update_samesize =
@@ -573,6 +604,7 @@ Suite *wolfboot_suite(void)
     tcase_add_test(ramboot_invalid_header, test_ramboot_invalid_header);
     tcase_add_test(ramboot_oversize, test_ramboot_oversize_rejected);
     tcase_add_test(ramboot_success, test_ramboot_success);
+    tcase_add_test(ramboot_overlap, test_ramboot_overlap_predicate);
     tcase_add_test(sunnyday_noupdate, test_sunnyday_noupdate);
     tcase_add_test(forward_update_samesize, test_forward_update_samesize);
     tcase_add_test(forward_update_tolarger, test_forward_update_tolarger);
@@ -595,6 +627,7 @@ Suite *wolfboot_suite(void)
     suite_add_tcase(s, ramboot_invalid_header);
     suite_add_tcase(s, ramboot_oversize);
     suite_add_tcase(s, ramboot_success);
+    suite_add_tcase(s, ramboot_overlap);
     suite_add_tcase(s, sunnyday_noupdate);
     suite_add_tcase(s, forward_update_samesize);
     suite_add_tcase(s, forward_update_tolarger);
@@ -616,6 +649,7 @@ Suite *wolfboot_suite(void)
     tcase_set_timeout(ramboot_invalid_header, 5);
     tcase_set_timeout(ramboot_oversize, 5);
     tcase_set_timeout(ramboot_success, 5);
+    tcase_set_timeout(ramboot_overlap, 5);
     tcase_set_timeout(sunnyday_noupdate, 5);
     tcase_set_timeout(forward_update_samesize, 5);
     tcase_set_timeout(forward_update_tolarger, 5);

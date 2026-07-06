@@ -1,0 +1,41 @@
+// Boot BIF for wolfBoot as the ZynqMP FSBL REPLACEMENT (ZCU102) with Xilinx
+// hardware root-of-trust (RSA authentication via eFuse PPK).
+//
+// Same layout as zynqmp_wolfboot_fsbl.bif but the BootROM authenticates
+// wolfBoot (and PMUFW) with RSA-4096/SHA3-384 before running them. This is the
+// hardware root of trust: the BootROM verifies wolfBoot against the eFuse PPK
+// hash; wolfBoot then verifies the downstream images with its OWN keys.
+//
+// Bring-up vs production:
+//   - [fsbl_config] bh_auth_enable below makes the BootROM trust the PPK in the
+//     boot header WITHOUT checking it against the eFuse PPK hash. Use this for
+//     development only. Remove it for production and program the eFuse PPK0
+//     hash + blow RSA_EN so the BootROM enforces the check.
+//   - Generate the PPK eFuse hash:  bootgen -arch zynqmp -efuseppkbits ...
+//   - Program eFuses with the xilskey programming example.
+//
+// Usage:
+//   bootgen -arch zynqmp \
+//           -image tools/scripts/zcu102/zynqmp_wolfboot_fsbl_auth.bif \
+//           -w -o BOOT.BIN
+//
+// Required files:
+//   wolfboot.elf  - wolfBoot linked at OCM 0xFFFC0000 (built ZYNQMP_FSBL=1)
+//   pmufw.elf     - Platform Management Unit firmware
+//   pskf.pem      - primary secret (private) key
+//   sskf.pem      - secondary secret (private) key
+the_ROM_image:
+{
+	// Development only: trust the boot-header PPK without the eFuse check.
+	// Remove for production (program the eFuse PPK0 hash + RSA_EN instead).
+	[fsbl_config] bh_auth_enable
+
+	// Primary public key 0, secondary public key id 0
+	[auth_params] ppk_select=0; spk_id=0x00000000
+
+	[pskfile] pskf.pem
+	[sskfile] sskf.pem
+
+	[bootloader, destination_cpu=a53-0, authentication=rsa] wolfboot.elf
+	[pmufw_image, authentication=rsa] pmufw.elf
+}

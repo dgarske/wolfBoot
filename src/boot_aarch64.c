@@ -242,7 +242,37 @@ void RAMFUNCTION arch_reboot(void)
  * ============================================================================
  */
 
-#if defined(DEBUG_HARDFAULT) && defined(DEBUG_UART) && defined(EL2_HYPERVISOR)
+#if defined(EL3_SECURE) && EL3_SECURE == 1 && defined(DEBUG_UART)
+
+/* EL3 exception reporting. Without this, a data abort / SError taken at EL3
+ * lands in the silent wfi stub below and looks like a hang. Print the syndrome
+ * so the fault class (ESR_EL3.EC) and faulting address (FAR_EL3) are visible.
+ * Gated on DEBUG_UART so release EL3 targets keep the minimal silent stub. */
+static void print_exception_info_el3(const char *type)
+{
+    unsigned long esr = 0, elr = 0, far = 0;
+    __asm__ volatile("mrs %0, ESR_EL3" : "=r"(esr));
+    __asm__ volatile("mrs %0, ELR_EL3" : "=r"(elr));
+    __asm__ volatile("mrs %0, FAR_EL3" : "=r"(far));
+    wolfBoot_printf("\n*** %s EXCEPTION (EL3) ***\n", type);
+    wolfBoot_printf("ESR_EL3: 0x%08x%08x\n",
+        (uint32_t)(esr >> 32), (uint32_t)esr);
+    wolfBoot_printf("ELR_EL3: 0x%08x%08x\n",
+        (uint32_t)(elr >> 32), (uint32_t)elr);
+    wolfBoot_printf("FAR_EL3: 0x%08x%08x\n",
+        (uint32_t)(far >> 32), (uint32_t)far);
+}
+
+void SynchronousInterrupt(void)
+    { print_exception_info_el3("SYNCHRONOUS"); while (1) { __asm__ volatile("wfi"); } }
+void IRQInterrupt(void)
+    { print_exception_info_el3("IRQ"); while (1) { __asm__ volatile("wfi"); } }
+void FIQInterrupt(void)
+    { print_exception_info_el3("FIQ"); while (1) { __asm__ volatile("wfi"); } }
+void SErrorInterrupt(void)
+    { print_exception_info_el3("SERROR"); while (1) { __asm__ volatile("wfi"); } }
+
+#elif defined(DEBUG_HARDFAULT) && defined(DEBUG_UART) && defined(EL2_HYPERVISOR)
 
 #define READ_SYSREG(_out, _reg) __asm__ volatile("mrs %0, " #_reg : "=r"(_out))
 
