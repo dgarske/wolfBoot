@@ -207,6 +207,13 @@ int RAMFUNCTION hal_flash_erase(uint32_t address, int len)
             *cr &= ~FLASH_CR_PER ;
             return 0; /* Address out of range */
         }
+        /* BKER refers to the physical bank, whatever the SWAP_BANK setting
+         * (RM0456 7.5.8): invert it when the banks are swapped, so that the
+         * erased bank is the one currently mapped at the target address. */
+        if ((FLASH_OPTR & (FLASH_OPTR_DBANK | FLASH_OPTR_SWAP_BANK)) ==
+                (FLASH_OPTR_DBANK | FLASH_OPTR_SWAP_BANK)) {
+            bker ^= FLASH_CR_BKER;
+        }
         reg = *cr & (~((FLASH_CR_PNB_MASK << FLASH_CR_PNB_SHIFT) | FLASH_CR_BKER));
         reg |= ((((p - base)  >> 13) << FLASH_CR_PNB_SHIFT) | FLASH_CR_PER | bker );
         *cr = reg;
