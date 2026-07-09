@@ -1,0 +1,34 @@
+name: dualbank-emulator-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  stm32u5-dualbank-swap-fallback:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init submodules
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git submodule update --init --single-branch
+
+      - name: Configure stm32u5 (non-secure dual-bank, hardware-assisted swap)
+        run: |
+          cp config/examples/stm32u5-nonsecure-dualbank.config .config
+
+      - name: Run dual-bank swap fallback test (stm32u5)
+        working-directory: test-app/emu-test-apps
+        run: |
+          ./test-dualbank.sh
+
+      - name: Upload emulator log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dualbank-fallback-log
+          path: test-app/emu-test-apps/stm32u585-dualbank/dualbank_fallback.log
