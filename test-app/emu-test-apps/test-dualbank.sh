@@ -46,6 +46,10 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WOLFBOOT_ROOT="${WOLFBOOT_ROOT:-$(cd "$script_dir/../.." && pwd)}"
+# The top-level Makefile defaults WOLFBOOT_ROOT to $(PWD), which is the
+# caller's directory when invoked via make -C: export the real root so
+# tool paths (keygen/sign) resolve correctly wherever this script runs.
+export WOLFBOOT_ROOT
 EMU_APPS="$WOLFBOOT_ROOT/test-app/emu-test-apps"
 EMU_DIR=stm32u585-dualbank
 EMU_PATH="$EMU_APPS/$EMU_DIR"
