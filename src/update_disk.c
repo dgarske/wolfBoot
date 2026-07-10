@@ -47,6 +47,9 @@
 #ifdef WOLFBOOT_ELF
 #include "elf.h"
 #endif
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+#include "../hal/zynqmp_atf.h"
+#endif
 
 /* Disk encryption support for AES-256, AES-128, or ChaCha20 */
 #if defined(ENCRYPT_WITH_AES256) || defined(ENCRYPT_WITH_AES128) || \
@@ -282,6 +285,10 @@ void RAMFUNCTION wolfBoot_start(void)
     #ifdef WOLFBOOT_FDT
     uint32_t dts_size = 0;
     #endif
+#endif
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+    /* BL31 (ARM-TF) entry, set when the boot FIT carries an "atf" sub-image. */
+    uintptr_t bl31_entry = 0;
 #endif
     char part_name[4] = {'P', ':', 'X', '\0'};
     BENCHMARK_DECLARE();
@@ -566,6 +573,9 @@ void RAMFUNCTION wolfBoot_start(void)
         void* fit = (void*)load_address;
         const char *kernel = NULL, *flat_dt = NULL, *ramdisk = NULL;
         const char *fpga = NULL;
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+        void *atf_load;
+#endif
 
         wolfBoot_printf("Flattened uImage Tree: Version %d, Size %d\n",
             fdt_version(fit), fdt_totalsize(fit));
@@ -600,6 +610,14 @@ void RAMFUNCTION wolfBoot_start(void)
             }
             load_address = new_load;
         }
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+        /* Load BL31 (ARM-TF) from the FIT "atf" sub-image, if present. */
+        atf_load = fit_load_image(fit, "atf", NULL);
+        if (atf_load != NULL) {
+            bl31_entry = (uintptr_t)atf_load;
+            wolfBoot_printf("FIT: BL31 (atf) loaded at %p\r\n", atf_load);
+        }
+#endif
         if (flat_dt != NULL) {
             uint8_t *dts_ptr = fit_load_image(fit, flat_dt, (int*)&dts_size);
             if (dts_ptr != NULL && wolfBoot_get_dts_size(dts_ptr) >= 0) {
@@ -657,6 +675,14 @@ void RAMFUNCTION wolfBoot_start(void)
 #ifdef DISK_ENCRYPT
     disk_decrypted_header_clear(dec_hdr);
     disk_crypto_clear();
+#endif
+#if defined(WOLFBOOT_ZYNQMP_FSBL) && defined(MMU)
+    if (bl31_entry != 0) {
+        wolfBoot_printf("Handing off to BL31 at %p (kernel %p)\r\n",
+            (void*)bl31_entry, (void*)load_address);
+        zynqmp_atf_handoff(bl31_entry, (uintptr_t)load_address,
+            (uintptr_t)dts_addr, ZYNQMP_ATF_EL2);
+    }
 #endif
     do_boot((uint32_t*)load_address
     #ifdef MMU

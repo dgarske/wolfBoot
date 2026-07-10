@@ -127,13 +127,20 @@ if &programnow
   FLASHFILE.ReProgram off
 )
 
-; Flash signed application image at partition offset
-DIALOG.YESNO "Flash signed application image now?"
+; Flash signed FIT image at the wolfBoot boot partition offset.
+; Offset must match WOLFBOOT_PARTITION_BOOT_ADDRESS in the active .config
+; (config/examples/zynqmp_fsbl.config = 0x800000). This is the combined
+; dual-parallel QSPI linear offset, same address space as BOOT.BIN@0x0.
+; The signed FIT is produced by:
+;   mkimage -f hal/zynqmp_fsbl.its fitImage
+;   ./tools/keytools/sign --rsa4096 --sha3 fitImage <key>.der 1
+; and must sit in the TRACE32 working directory (alongside BOOT.BIN).
+DIALOG.YESNO "Flash signed FIT image (fitImage_v1_signed.bin) now?"
 ENTRY &programnow
 if &programnow
 (
   FLASHFILE.ReProgram ALL
-  FLASHFILE.Load "test-app/image_v1_signed.bin" 0x7000000
+  FLASHFILE.Load "fitImage_v1_signed.bin" 0x800000
   FLASHFILE.ReProgram off
 )
 

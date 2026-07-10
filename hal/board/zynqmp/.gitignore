@@ -1,0 +1,8 @@
+# The board PS init is generated from your XSA by the Xilinx tools and carries
+# the Xilinx copyright; it is board/design specific and is NOT tracked in the
+# wolfBoot tree. Drop your generated files here (see README.txt).
+psu_init_gpl.c
+psu_init_gpl.h
+psu_init.c
+psu_init.h
+*.o

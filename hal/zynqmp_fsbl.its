@@ -1,0 +1,79 @@
+/dts-v1/;
+
+/*
+ * Xilinx ZynqMP ZCU102 - wolfBoot-as-FSBL -> Linux boot FIT.
+ *
+ * wolfBoot (running as the FSBL replacement at EL3 in OCM) loads this FIT
+ * from QSPI, verifies the outer wolfBoot RSA4096/SHA3 signature, then:
+ *   - gunzips the kernel to 0x00200000 (BL33 entry),
+ *   - loads BL31 to 0x70000000 (found by the literal node name "atf"),
+ *   - relocates the DTB to WOLFBOOT_LOAD_DTS_ADDRESS (0x11800000),
+ *   - publishes DTB addr in PMU_GLOBAL_GEN_STORAGE5 and the XLNX handoff
+ *     block addr in GEN_STORAGE6, and branches to BL31 at EL3.
+ * BL31 (xlnx_rebase_v2.12 + tf-a-zynqmp-wolfboot-dtb.patch) hands the kernel
+ * its DTB in x0 and enters BL33 at EL2.
+ *
+ * The incbin filenames are relative: copy the three artifacts into the
+ * directory you run mkimage from (or next to this .its). Sources:
+ *   Image.gz, system.dtb  - from the PetaLinux images/linux tree
+ *   bl31-ddr-0x70000000.bin - BL31 (TF-A) built per docs/Targets.md at link
+ *     base 0x70000000; it must equal the "atf" load/entry below.
+ *
+ * Build:  mkimage -f zynqmp_fsbl.its fitImage
+ * Sign:   sign --rsa4096 --sha3 fitImage <key>.der 1
+ */
+
+/ {
+    description = "Xilinx ZynqMP ZCU102 - wolfBoot Linux (FSBL)";
+    #address-cells = <1>;
+
+    images {
+        kernel-1 {
+            description = "Linux Kernel (gzip)";
+            data = /incbin/("Image.gz");
+            type = "kernel";
+            arch = "arm64";
+            os = "linux";
+            compression = "gzip";
+            load = <0x00200000>;
+            entry = <0x00200000>;
+            hash-1 {
+                algo = "sha256";
+            };
+        };
+        atf {
+            description = "ARM Trusted Firmware BL31 (DDR-linked)";
+            data = /incbin/("bl31-ddr-0x70000000.bin");
+            type = "firmware";
+            arch = "arm64";
+            os = "arm-trusted-firmware";
+            compression = "none";
+            load = <0x70000000>;
+            entry = <0x70000000>;
+            hash-1 {
+                algo = "sha256";
+            };
+        };
+        fdt-1 {
+            description = "Flattened Device Tree blob";
+            data = /incbin/("system.dtb");
+            type = "flat_dt";
+            arch = "arm64";
+            compression = "none";
+            hash-1 {
+                algo = "sha256";
+            };
+        };
+    };
+    configurations {
+        default = "conf-1";
+        conf-1 {
+            description = "Linux kernel + FDT (BL31 loaded by literal name atf)";
+            kernel = "kernel-1";
+            fdt = "fdt-1";
+            hash-1 {
+                algo = "sha256";
+            };
+        };
+    };
+};

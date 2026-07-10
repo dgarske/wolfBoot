@@ -204,6 +204,14 @@
 
 #define GQSPI_FIFO_WORD_SZ     4
 #define QQSPI_DMA_ALIGN        64 /* L1 cache size */
+/* Maximum bytes per GQSPI DMA transfer. The controller does not reliably
+ * complete a single very large (>=128KB) DMA read into DDR on ZynqMP -- the
+ * large chunk lands as zeros -- so cap each transfer and let the flash stream
+ * continuously across multiple RX gen-FIFO entries. 32KB is well within the
+ * working range and keeps the one-time boot read fast. */
+#ifndef GQSPI_DMA_MAX_CHUNK
+#define GQSPI_DMA_MAX_CHUNK    0x8000U
+#endif
 #ifndef GQSPI_DMA_TMPSZ
     /* Use larger of WOLFBOOT_SHA_BLOCK_SIZE or IMAGE_HEADER_SIZE */
     #if defined(WOLFBOOT_SHA_BLOCK_SIZE) && \

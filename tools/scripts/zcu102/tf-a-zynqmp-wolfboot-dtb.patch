@@ -1,0 +1,59 @@
+plat: xilinx: zynqmp: forward DTB to a direct-kernel BL33
+
+When wolfBoot replaces the Xilinx FSBL and boots a Linux kernel directly as
+BL33 (no U-Boot), BL31 must hand the kernel its device tree in x0 (the arm64
+boot protocol requires the DTB pointer in x0). Stock ZynqMP TF-A leaves the
+BL33 entry arguments zeroed, which is fine for a U-Boot BL33 but not for a
+direct kernel.
+
+wolfBoot publishes the DTB address in PMU_GLOBAL.GLOBAL_GEN_STORAGE5 (it already
+uses GLOBAL_GEN_STORAGE6 for the standard ATF handoff-parameter block). This
+patch reads GEN_STORAGE5 and, when non-zero, places it in BL33's arg0. When the
+register is zero (JTAG/default path, or a U-Boot BL33), behaviour is unchanged.
+
+Apply against the Xilinx ARM Trusted Firmware tree:
+    cd arm-trusted-firmware
+    git apply /path/to/tf-a-zynqmp-wolfboot-dtb.patch
+    make PLAT=zynqmp RESET_TO_BL31=1 bl31
+
+Build BL31 with its link base in DDR (ZYNQMP_ATF_MEM_BASE in DDR), not the
+default OCM 0xFFFE0000, because wolfBoot occupies OCM as the FSBL.
+
+diff --git a/plat/xilinx/zynqmp/bl31_zynqmp_setup.c b/plat/xilinx/zynqmp/bl31_zynqmp_setup.c
+index 65616e599..b9a4284e3 100644
+--- a/plat/xilinx/zynqmp/bl31_zynqmp_setup.c
++++ b/plat/xilinx/zynqmp/bl31_zynqmp_setup.c
+@@ -143,6 +143,21 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 			panic();
+ 		}
+ 	}
++
++	/*
++	 * wolfBoot (as the FSBL) publishes the BL33 device tree address in
++	 * PMU_GLOBAL_GEN_STORAGE5. The arm64 boot protocol requires the DTB
++	 * pointer in x0, but stock TF-A leaves BL33's args zeroed (fine for a
++	 * U-Boot BL33, not for a direct kernel BL33). Forward it when set.
++	 */
++	{
++		uint64_t dtb_addr = (uint64_t)mmio_read_32(PMU_GLOBAL_GEN_STORAGE5);
++
++		if (dtb_addr != 0U) {
++			bl33_image_ep_info.args.arg0 = dtb_addr;
++		}
++	}
++
+ 	if (bl32_image_ep_info.pc != 0U) {
+ 		NOTICE("BL31: Secure code at 0x%lx\n", bl32_image_ep_info.pc);
+ 	}
+diff --git a/plat/xilinx/zynqmp/include/zynqmp_def.h b/plat/xilinx/zynqmp/include/zynqmp_def.h
+index cd3bbbc64..19156a5fb 100644
+--- a/plat/xilinx/zynqmp/include/zynqmp_def.h
++++ b/plat/xilinx/zynqmp/include/zynqmp_def.h
+@@ -102,6 +102,7 @@
+ #define PMU_GLOBAL_BASE			U(0xFFD80000)
+ #define PMU_GLOBAL_CNTRL		(PMU_GLOBAL_BASE + 0)
+ #define PMU_GLOBAL_GEN_STORAGE6		(PMU_GLOBAL_BASE + U(0x48))
++#define PMU_GLOBAL_GEN_STORAGE5		(PMU_GLOBAL_BASE + U(0x44))
+ #define PMU_GLOBAL_REQ_PWRUP_STATUS	(PMU_GLOBAL_BASE + U(0x110))
+ #define PMU_GLOBAL_REQ_PWRUP_EN		(PMU_GLOBAL_BASE + U(0x118))
+ #define PMU_GLOBAL_REQ_PWRUP_DIS	(PMU_GLOBAL_BASE + U(0x11c))
