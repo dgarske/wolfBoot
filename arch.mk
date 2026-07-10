@@ -83,6 +83,58 @@ ifeq ($(ARCH),AARCH64)
       CFLAGS+=-DWOLFBOOT_ZYNQMP_CSU
     endif
 
+    ifeq ($(ZYNQMP_FSBL),1)
+      # wolfBoot fully replaces the Xilinx FSBL: the BootROM authenticates and
+      # loads wolfBoot into OCM at EL3, and wolfBoot runs psu_init() to bring up
+      # the PLLs/DDR/MIO/clocks before loading the downstream images. wolfBoot
+      # therefore links and runs entirely from OCM (DDR is not up at entry).
+      #
+      # The board-specific psu_init_gpl.c / psu_init_gpl.h (generated from the
+      # XSA, Xilinx copyright) are supplied at build time from
+      # ZYNQMP_PSU_INIT_DIR and are NOT part of the wolfBoot tree. The
+      # hal/zynqmp/ shim headers (xil_io.h, sleep.h) let that unmodified file
+      # compile. Set EL3_SECURE=1 in the target .config.
+      ZYNQMP_PSU_INIT_DIR?=hal/board/zynqmp
+      CFLAGS+=-DWOLFBOOT_ZYNQMP_FSBL
+      CFLAGS+=-Ihal/zynqmp -I$(ZYNQMP_PSU_INIT_DIR)
+      LSCRIPT_IN=hal/zynqmp_ocm.ld
+      OBJS+=hal/zynqmp_psu_shim.o
+      OBJS+=hal/zynqmp_atf.o
+      OBJS+=$(ZYNQMP_PSU_INIT_DIR)/psu_init_gpl.o
+
+      # Load the PMU configuration object (EEMI permission table) into PMU
+      # firmware so the APU can control the SoC nodes. Like psu_init_gpl.c the
+      # pm_cfg_obj.c is design-specific and supplied from ZYNQMP_PSU_INIT_DIR.
+      ifeq ($(ZYNQMP_PM_CFG),1)
+        CFLAGS+=-DWOLFBOOT_ZYNQMP_PM_CFG
+        OBJS+=$(ZYNQMP_PSU_INIT_DIR)/pm_cfg_obj.o
+      endif
+
+      # Run the PS-GTR serdes init (USB3/SATA/PCIe/DP PHY lanes). Required if the
+      # kernel drives a PS-GTR peripheral (e.g. USB3 dwc3, whose probe hangs on
+      # an unclocked PHY). Skipped by default since QSPI/SD/RGMII boot needs no
+      # serdes; the shim runs the full calibrated sequence when enabled.
+      ifeq ($(ZYNQMP_PSU_INIT_SERDES),1)
+        CFLAGS+=-DZYNQMP_PSU_INIT_SERDES
+      endif
+
+      # FSBL security features (eFuse read, PUF, AES-CSU). At EL3 these access
+      # the CSU/eFuse controllers directly (pmu_mmio is direct MMIO in FSBL
+      # mode). Read-only eFuse dump today; PUF/AES land incrementally.
+      ifeq ($(ZYNQMP_SEC),1)
+        CFLAGS+=-DWOLFBOOT_ZYNQMP_FSBL_SEC
+      endif
+      # PUF register+regenerate self-test at boot (bring-up only; registers the
+      # PUF every boot). Opt-in, needs ZYNQMP_SEC=1.
+      ifeq ($(ZYNQMP_PUF_SELFTEST),1)
+        CFLAGS+=-DWOLFBOOT_ZYNQMP_PUF_SELFTEST
+      endif
+      # AES-CSU known-answer self-test at boot (KUP key; eFuse-safe). Opt-in.
+      ifeq ($(ZYNQMP_AES_SELFTEST),1)
+        CFLAGS+=-DWOLFBOOT_ZYNQMP_AES_SELFTEST
+      endif
+    endif
+
   endif
 
   ifeq ($(TARGET),versal)

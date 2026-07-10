@@ -213,9 +213,15 @@ InitEL3:
 #endif
     msr    S3_1_C15_C2_0, x0      /* CPUACTLR_EL1 */
 
-    /* Program the counter frequency */
+    /* Program the counter frequency.
+     * For the FSBL-replacement build, do NOT overwrite CNTFRQ_EL0: the BootROM
+     * sets it to the actual system-counter rate, which our usleep() needs for
+     * accurate psu_init DDR-training delays. Hardcoding 100MHz here is wrong
+     * when the counter runs at the BootROM (undivided) rate. */
+#ifndef WOLFBOOT_ZYNQMP_FSBL
     ldr    x0,=counterfreq
     msr    CNTFRQ_EL0, x0
+#endif
 
     /* Enable hardware coherency between cores */
     mrs    x0, S3_1_c15_c2_1      /* Read EL1 CPU Extended Control Register */
@@ -557,7 +563,13 @@ invalidatecaches_end:
 */
 
 .set reserved,  0x0                             /* Fault */
-#if defined(EL1_NONSECURE) && EL1_NONSECURE == 1
+#if defined(ZYNQMP_DDR_NC) && ZYNQMP_DDR_NC == 1
+.set Memory,    0x401 | (0 << 8) | (0x0)        /* DDR as Normal NON-cacheable (MAIR idx0=0x44) - diag */
+#elif defined(ZYNQMP_DDR_DEVICE) && ZYNQMP_DDR_DEVICE == 1
+.set Memory,    0x409 | (1 << 53) | (1 << 54)   /* DDR as Device-nGnRnE (no speculation) - diag */
+#elif defined(ZYNQMP_DDR_NONSHARED) && ZYNQMP_DDR_NONSHARED == 1
+.set Memory,    0x405 | (0 << 8) | (0x0)        /* normal writeback write allocate NON-shareable read write */
+#elif defined(EL1_NONSECURE) && EL1_NONSECURE == 1
 .set Memory,    0x405 | (2 << 8) | (0x0)        /* normal writeback write allocate outer shared read write */
 #else
 .set Memory,    0x405 | (3 << 8) | (0x0)        /* normal writeback write allocate inner shared read write */
@@ -1212,6 +1224,74 @@ flush_dcache_range:
     ret
 
 
+/*
+ * void zynqmp_dcache_disable(void)
+ *
+ * Clean+invalidate the entire data cache to PoC by set/way, then disable the
+ * D-cache (SCTLR_EL3.C=0) and drop the core out of the coherency domain
+ * (CPUECTLR_EL1.SMPEN=0). Used to TEST whether the QSPI body-load failure is
+ * purely a coherency artifact: with no cache lines to allocate into and the
+ * core out of the snoop domain, the coherent QSPIDMA writes must land in DDR.
+ * Clobbers x0-x11. Modeled on the ARMv8 set/way routine used elsewhere here.
+ */
+.global zynqmp_dcache_disable
+zynqmp_dcache_disable:
+    mrs     x0, clidr_el1
+    and     x3, x0, #0x07000000
+    lsr     x3, x3, #23                 /* x3 = LoC * 2 */
+    cbz     x3, .Lzdd_done
+    mov     x10, #0
+.Lzdd_level:
+    add     x2, x10, x10, lsr #1
+    lsr     x1, x0, x2
+    and     x1, x1, #7
+    cmp     x1, #2
+    b.lt    .Lzdd_skip
+    msr     csselr_el1, x10
+    isb
+    mrs     x1, ccsidr_el1
+    and     x2, x1, #7
+    add     x2, x2, #4                  /* x2 = log2(line len) */
+    mov     x4, #0x3ff
+    and     x4, x4, x1, lsr #3          /* x4 = max way */
+    clz     w5, w4
+    mov     x7, #0x7fff
+    and     x7, x7, x1, lsr #13         /* x7 = max set */
+.Lzdd_set:
+    mov     x9, x4
+.Lzdd_way:
+    lsl     x6, x9, x5
+    orr     x11, x10, x6
+    lsl     x6, x7, x2
+    orr     x11, x11, x6
+    dc      cisw, x11
+    subs    x9, x9, #1
+    b.ge    .Lzdd_way
+    subs    x7, x7, #1
+    b.ge    .Lzdd_set
+.Lzdd_skip:
+    add     x10, x10, #2
+    cmp     x3, x10
+    b.gt    .Lzdd_level
+.Lzdd_done:
+    mov     x10, #0
+    msr     csselr_el1, x10
+    dsb     sy
+    isb
+    /* disable D-cache (SCTLR_EL3.C, bit 2) */
+    mrs     x1, sctlr_el3
+    bic     x1, x1, #(1 << 2)
+    msr     sctlr_el3, x1
+    isb
+    /* leave the SMP/coherency domain (CPUECTLR_EL1.SMPEN, bit 6) */
+    mrs     x1, S3_1_C15_C2_1
+    bic     x1, x1, #(1 << 6)
+    msr     S3_1_C15_C2_1, x1
+    dsb     sy
+    isb
+    ret
+
+
 /* Initialize GIC 400 (GICv2) */
 .global gicv2_init_secure
 gicv2_init_secure:
@@ -1447,5 +1527,91 @@ el2_flush_and_disable_mmu:
 
     ret
 #endif /* EL2_HYPERVISOR */
+
+#if defined(WOLFBOOT_ZYNQMP_FSBL)
+/*
+ * void el3_jump_to_entry(uintptr_t entry)
+ *
+ * Generic AArch64 EL3 exit primitive: cleans & invalidates the entire D-cache
+ * to the PoC, invalidates the I-cache, disables the EL3 MMU + I/D-caches, then
+ * branches to the given entry point at EL3 with the MMU off. Not ZynqMP-
+ * specific -- reusable by any AArch64 EL3-FSBL target that hands off to a
+ * next-stage image entered at EL3 (here BL31, mirroring the stock ZynqMP FSBL's
+ * XFsbl_Exit()). Any handoff parameters are the caller's responsibility (the
+ * ZynqMP caller publishes them via PMU_GLOBAL scratch in hal/zynqmp_atf.c
+ * beforehand), so no GP-register arguments are used here.
+ *
+ * x0: entry. The set/way loop below clobbers x0-x11, so the entry point is
+ * preserved in x19 (callee-saved, untouched by the loop). Does not return.
+ */
+.global el3_jump_to_entry
+el3_jump_to_entry:
+    mov     x19, x0                 /* preserve entry point across the loop */
+
+    /* ---- 1. Clean & invalidate entire data cache to PoC by set/way ---- */
+    mrs     x0, clidr_el1
+    and     x3, x0, #0x07000000     /* x3 = LoC (level of coherency) */
+    lsr     x3, x3, #23             /* x3 = LoC * 2 */
+    cbz     x3, .Latf_dcache_done
+    mov     x10, #0                 /* x10 = current cache level << 1 */
+
+.Latf_dcache_level_loop:
+    add     x2, x10, x10, lsr #1    /* x2 = level * 3 */
+    lsr     x1, x0, x2              /* x1 = ctype field for this level */
+    and     x1, x1, #7
+    cmp     x1, #2
+    b.lt    .Latf_dcache_skip_level /* No data cache at this level */
+    msr     csselr_el1, x10         /* Select cache level (instruction = 0) */
+    isb
+    mrs     x1, ccsidr_el1
+    and     x2, x1, #7              /* x2 = log2(line length) - 4 */
+    add     x2, x2, #4              /* x2 = log2(line length) */
+    mov     x4, #0x3ff
+    and     x4, x4, x1, lsr #3      /* x4 = max way number */
+    clz     w5, w4                  /* x5 = bit position of way size */
+    mov     x7, #0x7fff
+    and     x7, x7, x1, lsr #13     /* x7 = max set number */
+
+.Latf_dcache_set_loop:
+    mov     x9, x4                  /* x9 = current way */
+.Latf_dcache_way_loop:
+    lsl     x6, x9, x5
+    orr     x11, x10, x6            /* level | way */
+    lsl     x6, x7, x2
+    orr     x11, x11, x6            /* level | way | set */
+    dc      cisw, x11               /* clean & invalidate by set/way */
+    subs    x9, x9, #1
+    b.ge    .Latf_dcache_way_loop
+    subs    x7, x7, #1
+    b.ge    .Latf_dcache_set_loop
+
+.Latf_dcache_skip_level:
+    add     x10, x10, #2
+    cmp     x3, x10
+    b.gt    .Latf_dcache_level_loop
+
+.Latf_dcache_done:
+    mov     x10, #0
+    msr     csselr_el1, x10
+    dsb     sy
+    isb
+
+    /* ---- 2. Invalidate entire I-cache to PoU ---- */
+    ic      iallu
+    dsb     ish
+    isb
+
+    /* ---- 3. Disable MMU + I-cache + D-cache at EL3 ---- */
+    mrs     x0, SCTLR_EL3
+    bic     x0, x0, #(1 << 0)       /* M  */
+    bic     x0, x0, #(1 << 2)       /* C  */
+    bic     x0, x0, #(1 << 12)      /* I  */
+    msr     SCTLR_EL3, x0
+    dsb     sy
+    isb
+
+    /* ---- 4. Branch to BL31 (does not return) ---- */
+    br      x19
+#endif /* WOLFBOOT_ZYNQMP_FSBL */
 
 .end

@@ -13,6 +13,11 @@ on:
       make-args:
         required: false
         type: string
+      psu-init-stub:
+        # Generate a build-only stub for the board psu_init_gpl.c (ZynqMP FSBL).
+        required: false
+        type: boolean
+        default: false
 
 jobs:
 
@@ -94,6 +99,29 @@ jobs:
       - name: Build tools
         run: |
           make -C tools/keytools && make -C tools/bin-assemble
+
+      - name: Generate ZynqMP psu_init build-only stub
+        if: ${{ inputs.psu-init-stub }}
+        run: |
+          cat > hal/board/zynqmp/psu_init_gpl.c <<'STUB'
+          /* CI build-only stub for the board psu_init_gpl.c (XSA-generated, not
+           * tracked in-tree). Satisfies the hal/zynqmp_psu_shim.c externs so the
+           * FSBL links; performs NO real PS init -- never run on hardware. */
+          unsigned long psu_mio_init_data(void) { return 1UL; }
+          unsigned long psu_peripherals_pre_init_data(void) { return 1UL; }
+          unsigned long psu_pll_init_data(void) { return 1UL; }
+          unsigned long psu_clock_init_data(void) { return 1UL; }
+          unsigned long psu_ddr_init_data(void) { return 1UL; }
+          unsigned long psu_ddr_phybringup_data(void) { return 1UL; }
+          unsigned long psu_peripherals_init_data(void) { return 1UL; }
+          unsigned long psu_resetin_init_data(void) { return 1UL; }
+          unsigned long psu_serdes_init_data(void) { return 1UL; }
+          unsigned long psu_resetout_init_data(void) { return 1UL; }
+          int serdes_fixcal_code(void) { return 0; }
+          unsigned long psu_peripherals_powerdwn_data(void) { return 1UL; }
+          unsigned long psu_afi_config(void) { return 1UL; }
+          unsigned long psu_ddr_qos_init_data(void) { return 1UL; }
+          STUB
 
       - name: Build wolfboot
         run: |

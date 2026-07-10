@@ -750,6 +750,30 @@ jobs:
       arch: aarch64
       config-file: ./config/examples/zynqmp_sdcard.config
 
+  zynqmp_fsbl_test:
+    uses: ./.github/workflows/test-build-aarch64.yml
+    with:
+      arch: aarch64
+      config-file: ./config/examples/zynqmp_fsbl.config
+      make-args: ZYNQMP_FSBL=1 ZYNQMP_PSU_INIT_DIR=hal/board/zynqmp
+      psu-init-stub: true
+
+  zynqmp_fsbl_sec_test:
+    uses: ./.github/workflows/test-build-aarch64.yml
+    with:
+      arch: aarch64
+      config-file: ./config/examples/zynqmp_fsbl.config
+      make-args: ZYNQMP_FSBL=1 ZYNQMP_PSU_INIT_DIR=hal/board/zynqmp ZYNQMP_SEC=1 ZYNQMP_PUF_SELFTEST=1 ZYNQMP_AES_SELFTEST=1
+      psu-init-stub: true
+
+  zynqmp_fsbl_sd_test:
+    uses: ./.github/workflows/test-build-aarch64.yml
+    with:
+      arch: aarch64
+      config-file: ./config/examples/zynqmp_fsbl_sd.config
+      make-args: ZYNQMP_FSBL=1 ZYNQMP_PSU_INIT_DIR=hal/board/zynqmp DISK_SDCARD=1
+      psu-init-stub: true
+
   zynq7000_test:
     uses: ./.github/workflows/test-build.yml
     with:
