@@ -60,7 +60,7 @@ TESTS:=unit-parser unit-fdt unit-extflash unit-string unit-spi-flash unit-aes128
        unit-update-disk unit-update-disk-oob unit-multiboot unit-boot-x86-fsp unit-loader-tpm-init unit-qspi-flash unit-fwtpm-stub unit-tpm-rsa-exp \
        unit-image-nopart unit-image-sha384 unit-image-sha3-384 unit-store-sbrk \
        unit-tpm-blob unit-policy-create unit-policy-sign unit-rot-auth unit-sdhci-response-bits \
-       unit-sdhci-disk-unaligned unit-sign-encrypted-output \
+       unit-sdhci-disk-unaligned unit-cm4-sdhci unit-sign-encrypted-output \
        unit-keygen-xmss-params
 TESTS+=unit-tpm-check-rot-auth
 TESTS+=unit-tpm-api-names
@@ -405,6 +405,10 @@ unit-sdhci-response-bits: ../../include/target.h unit-sdhci-response-bits.c
 
 unit-sdhci-disk-unaligned: ../../include/target.h unit-sdhci-disk-unaligned.c
 	gcc -o $@ $^ $(CFLAGS) -ffunction-sections -fdata-sections $(LDFLAGS) \
+		-Wl,--gc-sections
+
+unit-cm4-sdhci: ../../include/target.h unit-cm4-sdhci.c
+	gcc -o $@ $^ $(CFLAGS) -I../.. -ffunction-sections -fdata-sections $(LDFLAGS) \
 		-Wl,--gc-sections
 
 unit-aes128: ../../include/target.h unit-extflash.c

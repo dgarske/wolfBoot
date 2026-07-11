@@ -1835,3 +1835,48 @@ endif
 # includers (test-app), where a self-referencing += would not terminate.
 AUX_WOLFCRYPT_OBJS_NEW:=$(filter-out $(WOLFCRYPT_OBJS),$(sort $(AUX_WOLFCRYPT_OBJS)))
 WOLFCRYPT_OBJS+=$(AUX_WOLFCRYPT_OBJS_NEW)
+# ---------------------------------------------------------------------------
+# wolfCrypt FIPS 140-3 module (FIPS=1)
+#
+# Point WOLFBOOT_LIB_WOLFSSL at an unpacked FIPS / FIPS-ready wolfSSL tree.
+# The in-core integrity hash on GCC/ELF is enforced by LINK ORDER:
+# wolfcrypt_first.o must be first and wolfcrypt_last.o last, with the FIPS
+# boundary (crypto + fips.o + fips_test.o) between them. We therefore rebuild
+# WOLFCRYPT_OBJS from scratch in that order, replacing the piecemeal per-SIGN
+# selection above (the SIGN/HASH CFLAGS remain in effect). See docs/FIPS.md.
+ifeq ($(FIPS),1)
+  CFLAGS+=-DHAVE_FIPS
+  # The FIPS module pulls in libc malloc/printf. On bare-metal targets stub the
+  # newlib syscalls with nosys.specs; the HAL provides a bounded _sbrk so the
+  # heap cannot grow into the unverified image (see hal/cm4.c).
+  ifneq ($(ARCH),sim)
+    LDFLAGS += --specs=nosys.specs
+  endif
+  WCDIR=$(WOLFBOOT_LIB_WOLFSSL)/wolfcrypt/src
+  WOLFCRYPT_OBJS := \
+    $(WCDIR)/wolfcrypt_first.o \
+    $(WCDIR)/hash.o \
+    $(WCDIR)/hmac.o \
+    $(WCDIR)/kdf.o \
+    $(WCDIR)/pwdbased.o \
+    $(WCDIR)/random.o \
+    $(WCDIR)/sha.o \
+    $(WCDIR)/sha256.o \
+    $(WCDIR)/sha512.o \
+    $(WCDIR)/sha3.o \
+    $(WCDIR)/aes.o \
+    $(WCDIR)/cmac.o \
+    $(WCDIR)/ecc.o \
+    $(WCDIR)/sp_int.o \
+    $(WCDIR)/wolfmath.o \
+    $(WCDIR)/memory.o \
+    $(WCDIR)/wc_port.o \
+    $(WCDIR)/logging.o \
+    $(WCDIR)/error.o \
+    $(WCDIR)/coding.o \
+    $(WCDIR)/asn.o \
+    $(WCDIR)/wc_encrypt.o \
+    $(WCDIR)/fips.o \
+    $(WCDIR)/fips_test.o \
+    $(WCDIR)/wolfcrypt_last.o
+endif

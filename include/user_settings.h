@@ -43,6 +43,53 @@
 #define HAVE_EMPTY_AGGREGATES 0
 #define HAVE_ANONYMOUS_INLINE_AGGREGATES 0
 
+#ifdef HAVE_FIPS
+    /* wolfCrypt FIPS 140-3 module boundary algorithm set. FIPS requires the
+     * whole validated module (all approved algorithms) to be present so the
+     * power-on self-tests and in-core integrity check operate. See
+     * docs/FIPS.md. Enabled via FIPS=1 (-DHAVE_FIPS in options.mk). */
+    #define WOLFSSL_FIPS_READY
+    /* Single-threaded: the FIPS POST runs at init before any other access, so
+     * the module's thread-local state is a plain global (no pthread TLS). */
+    #define NO_THREAD_LS
+    /* wolfBoot's bare-metal startup does not run C constructors (.init_array),
+     * so the FIPS module's power-on self-test entry (fipsEntry) must be a
+     * normal callable function that wolfBoot invokes explicitly at startup. */
+    #define NO_ATTRIBUTE_CONSTRUCTOR
+    #define WOLFSSL_BASE16          /* fips_test.c hash hex encode/decode */
+    #define WOLFSSL_BASE64_ENCODE
+    #define WOLFSSL_SHA224
+    #define WOLFSSL_SHA384
+    #define WOLFSSL_SHA512
+    #define WOLFSSL_SHA3
+    #define HAVE_AESGCM
+    #define HAVE_AESCCM
+    #define HAVE_AES_ECB          /* AES CAST uses wc_AesEcbEncrypt */
+    #define HAVE_AES_CBC          /* AES-CBC CAST */
+    #define WOLFSSL_AES_COUNTER
+    #define WOLFSSL_AES_DIRECT
+    #define WOLFSSL_AES_CFB
+    #define WOLFSSL_AES_OFB
+    #define WOLFSSL_AES_XTS
+    #define WOLFSSL_CMAC
+    #define HAVE_HKDF
+    #define HAVE_ECC
+    #define WOLFSSL_ECDSA_SET_K
+    #define WOLFSSL_VALIDATE_ECC_IMPORT
+    #define WOLFSSL_VALIDATE_ECC_KEYGEN
+    #define WOLFSSL_KEY_GEN
+    #define WOLFSSL_PUBLIC_MP
+    #define WOLFSSL_SP_MATH_ALL
+    /* FIPS DRBG entropy seed source. The RNG must NOT be disabled in FIPS mode
+     * (see the undef block below which removes WC_NO_RNG/WC_NO_HASHDRBG). The
+     * seed comes from a HAL-provided source: /dev/urandom on sim, the BCM2711
+     * RNG200 hardware TRNG on CM4. */
+    #if defined(ARCH_SIM) || defined(TARGET_cm4)
+        #define CUSTOM_RAND_GENERATE_SEED wolfBoot_fips_seed
+        extern int wolfBoot_fips_seed(unsigned char* output, unsigned int sz);
+    #endif
+#endif /* HAVE_FIPS */
+
 /* Stdlib Types */
 #define CTYPE_USER /* don't let wolfCrypt types.h include ctype.h */
 
@@ -195,7 +242,7 @@ extern int tolower(int c);
        !defined(WOLFCRYPT_TEST) && !defined(WOLFCRYPT_BENCHMARK) && \
        !defined(WOLFBOOT_ENABLE_WOLFHSM_CLIENT) && \
        !defined(WOLFBOOT_ENABLE_WOLFHSM_SERVER)
-#       if !defined(WOLFBOOT_TPM)
+#       if !defined(WOLFBOOT_TPM) && !defined(HAVE_FIPS)
 #          define NO_ECC_SIGN
 #          define NO_ECC_DHE
            /* For Renesas RX do not enable the misc.c constant time code
@@ -434,10 +481,12 @@ extern int tolower(int c);
 #   endif
 #endif
 
-/* Drop SHA-256 when neither the image hash nor any other user needs it */
+/* Drop SHA-256 when neither the image hash nor any other user needs it.
+ * FIPS keeps SHA-256: the module's in-core integrity check is HMAC-SHA-256. */
 #if (defined(WOLFBOOT_HASH_SHA384) || defined(WOLFBOOT_HASH_SHA3_384)) && \
     !defined(WOLFBOOT_ENABLE_HASH_SHA256) && defined(NO_RSA) && \
     !defined(WOLFBOOT_TPM) && !defined(WOLFCRYPT_SECURE_MODE) && \
+    !defined(HAVE_FIPS) && \
     !defined(WOLFCRYPT_TEST) && !defined(WOLFCRYPT_BENCHMARK)
 #   define NO_SHA256
 #endif
@@ -589,7 +638,8 @@ extern int tolower(int c);
 #endif
 
 #if !defined(WOLFCRYPT_SECURE_MODE) && !defined(WOLFBOOT_TPM_PARMENC) && \
-    !defined(WOLFCRYPT_TEST) && !defined(WOLFCRYPT_BENCHMARK)
+    !defined(WOLFCRYPT_TEST) && !defined(WOLFCRYPT_BENCHMARK) && \
+    !defined(HAVE_FIPS)
     #if !(defined(WOLFBOOT_ENABLE_WOLFHSM_CLIENT) && \
         defined(WOLFBOOT_SIGN_ML_DSA)) && \
         !defined(WOLFBOOT_ENABLE_WOLFHSM_SERVER)
@@ -636,7 +686,8 @@ extern int tolower(int c);
 #if !defined(ENCRYPT_WITH_AES128) && !defined(ENCRYPT_WITH_AES256) && \
     !defined(WOLFBOOT_TPM_PARMENC) && !defined(WOLFCRYPT_SECURE_MODE) && \
     !defined(SECURE_PKCS11) && !defined(WOLFCRYPT_TZ_PSA) && \
-    !defined(WOLFCRYPT_TEST) && !defined(WOLFCRYPT_BENCHMARK)
+    !defined(WOLFCRYPT_TEST) && !defined(WOLFCRYPT_BENCHMARK) && \
+    !defined(HAVE_FIPS)
     #define NO_AES
 #endif
 
@@ -698,6 +749,25 @@ extern int tolower(int c);
 #define NO_PKCS8
 #define NO_CHECK_PRIVATE_KEY
 #define NO_KDF
+
+#ifdef HAVE_FIPS
+    /* The FIPS validated module requires its whole boundary present; undo the
+     * lean verify-only disables above so the module's approved algorithms and
+     * their power-on self-tests operate (see docs/FIPS.md). */
+    #undef  NO_HMAC
+    #undef  NO_CMAC
+    #undef  NO_SHA
+    #undef  NO_KDF
+    #undef  NO_ASN
+    #undef  NO_DEV_RANDOM
+    #undef  NO_ECC_KEY_EXPORT
+    #undef  WC_NO_RNG
+    #undef  WC_NO_HASHDRBG
+    #undef  NO_PWDBASED
+    #undef  NO_CODING
+    #undef  NO_AES_CBC          /* FIPS AES-CBC CAST needs CBC mode */
+    #define HAVE_PBKDF2
+#endif /* HAVE_FIPS */
 
 /* wolfCrypt Test/Benchmark Configuration */
 #ifdef WOLFCRYPT_TEST
