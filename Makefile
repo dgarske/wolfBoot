@@ -310,6 +310,10 @@ ifeq ($(TARGET),raspi3)
     MAIN_TARGET:=wolfboot.bin
 endif
 
+ifeq ($(TARGET),cm4)
+    MAIN_TARGET:=wolfboot.bin
+endif
+
 ifeq ($(TARGET),sim)
     CFLAGS+=-fno-pie
     LDFLAGS+=-no-pie

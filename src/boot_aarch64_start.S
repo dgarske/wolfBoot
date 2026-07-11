@@ -38,6 +38,10 @@
 #include "hal/raspi3.h"
 #endif
 
+#ifdef TARGET_cm4
+#include "hal/cm4.h"
+#endif
+
 /* GICv2 Register Offsets */
 #ifndef GICD_BASE
 #define GICD_BASE       0xF9010000
