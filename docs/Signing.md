@@ -267,6 +267,13 @@ Provides a value to be set with a custom tag
    e.g. `--custom-tlv-string 0x0030 "Version-1"` will add a TLV entry with tag 0x0030,
    length 9 and value Version-1.
 
+   * `--custom-tlv-file tag filename`: Adds a TLV entry with arbitrary length to the manifest
+   header, corresponding to the type identified by `tag`, with the value read as raw bytes
+   from the file `filename`. The tag is a 16-bit number. Valid tags are in the range between
+   0x0030 and 0xFEFE. The length is implicit, and is the size of the file. The maximum length
+   is 65535 bytes. Unlike `--custom-tlv-buffer`, the value is not passed on the command line,
+   so large binary values are not subject to the OS argument length limits.
+
    If the custom TLVs do not fit in the configured header size, the sign tool automatically
    increases the size of the manifest header, rounding up to the next power of two. wolfBoot
    must be built with a matching `IMAGE_HEADER_SIZE`, or it will fail to locate the firmware

@@ -3289,6 +3289,68 @@ int main(int argc, char** argv)
             }
             CMD.custom_tlvs++;
             i += 2;
+        } else if (strcmp(argv[i], "--custom-tlv-file") == 0) {
+            int p = CMD.custom_tlvs;
+            uint16_t tag;
+            FILE *f;
+            long fsz;
+            size_t rd;
+            if (p >= MAX_CUSTOM_TLVS) {
+                fprintf(stderr, "Too many custom TLVs.\n");
+                exit(16);
+            }
+            if (argc < (i + 2)) {
+                fprintf(stderr, "Invalid custom TLV fields. \n");
+                exit(16);
+            }
+            tag = (uint16_t)arg2num(argv[i + 1], 2);
+            if (tag < 0x0030) {
+                fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
+                exit(16);
+            }
+            if ( ((tag & 0xFF00) == 0xFF00) || ((tag & 0xFF) == 0xFF) ) {
+                fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
+                exit(16);
+            }
+            f = fopen(argv[i + 2], "rb");
+            if (f == NULL) {
+                fprintf(stderr, "Cannot open custom tlv file %s: %s\n",
+                    argv[i + 2], strerror(errno));
+                exit(16);
+            }
+            fseek(f, 0, SEEK_END);
+            fsz = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            if (fsz <= 0) {
+                fprintf(stderr, "custom tlv file is empty or unreadable: %s\n",
+                    argv[i + 2]);
+                fclose(f);
+                exit(16);
+            }
+            if (fsz > UINT16_MAX) {
+                fprintf(stderr, "custom tlv file too big: %ld bytes "
+                    "(max %u): %s\n", fsz, UINT16_MAX, argv[i + 2]);
+                fclose(f);
+                exit(16);
+            }
+            CMD.custom_tlv[p].tag = tag;
+            CMD.custom_tlv[p].len = (uint16_t)fsz;
+            CMD.custom_tlv[p].buffer = malloc((size_t)fsz);
+            if (CMD.custom_tlv[p].buffer == NULL) {
+                fprintf(stderr, "Error malloc for custom tlv buffer %ld\n",
+                    fsz);
+                fclose(f);
+                exit(16);
+            }
+            rd = fread(CMD.custom_tlv[p].buffer, 1, (size_t)fsz, f);
+            fclose(f);
+            if (rd != (size_t)fsz) {
+                fprintf(stderr, "Error reading custom tlv file %s\n",
+                    argv[i + 2]);
+                exit(16);
+            }
+            CMD.custom_tlvs++;
+            i += 2;
         }
         else if (strcmp(argv[i], "--cert-chain") == 0) {
             if (argc <= (i + 1)) {
@@ -3408,10 +3470,19 @@ int main(int argc, char** argv)
             printf("TLV %u\n", i);
             printf("----\n");
             if (CMD.custom_tlv[i].buffer) {
+                /* only print the first 256 bytes of large values */
+                uint16_t print_len = CMD.custom_tlv[i].len;
+                if (print_len > 256) {
+                    print_len = 256;
+                }
                 printf("Tag: %04X Len: %hu Val: ", CMD.custom_tlv[i].tag,
                         CMD.custom_tlv[i].len);
-                for (j = 0; j < CMD.custom_tlv[i].len; j++) {
+                for (j = 0; j < print_len; j++) {
                     printf("%02X", CMD.custom_tlv[i].buffer[j]);
+                }
+                if (print_len < CMD.custom_tlv[i].len) {
+                    printf("... (truncated, %hu bytes total)",
+                        CMD.custom_tlv[i].len);
                 }
                 printf("\n");
 
