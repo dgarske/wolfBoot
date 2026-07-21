@@ -3795,6 +3795,24 @@ Key configuration options:
 - `HASH=SHA3` - SHA3-384 hashing
 - `ELF=1` - ELF loading support
 
+### Ethernet PHY init (optional)
+
+On boards where U-Boot normally brings up the Ethernet PHY before the OS runs, wolfBoot can replay the equivalent register sequence itself. This is opt-in and off by default; it drives only the GEM MDIO management plane (wolfBoot has no network stack) and leaves the PHY in the state the downstream OS expects.
+
+Enable it in your config with:
+```
+CFLAGS_EXTRA+=-DWOLFBOOT_ZYNQMP_PHY_INIT
+```
+A commented example is included in `config/examples/zynqmp.config` and `config/examples/zynqmp_sdcard.config`. The default sequence targets a PHY at MDIO address `0x0E` on GEM3 (`0xFF0E0000`) plus a PL AXI-GPIO reset at `0x80060000`. Every value is overridable from `CFLAGS_EXTRA` (defaults defined in `hal/zynq.h`):
+
+- `ZYNQMP_GEM_BASE` - GEM register base (default `0xFF0E0000` = GEM3)
+- `ZYNQMP_PHY_ADDR` - PHY MDIO address (default `0x0E`)
+- `ZYNQMP_PHY_GPIO_ADDR` - PL AXI-GPIO used for PHY reset/enable; set to `0` to skip the GPIO pokes (note: a PL address only responds once the FPGA bitstream is loaded)
+- `ZYNQMP_GEM_MDC_DIV` - NWCFG MDC divisor selector (default `5` = pclk/96)
+- `ZYNQMP_PHY_INIT_STEPS` - the full `{op, arg0, arg1}` step list, to supply a different sequence for another board
+
+When `DEBUG_UART=1`, the PHY read-back steps print `PHY reg 0xNN = 0xNNNN` on the console, which is the go/no-go signal that MDIO reached the PHY.
+
 ### Building with Xilinx tools (Vitis IDE)
 
 See [IDE/XilinxSDK/README.md](/IDE/XilinxSDK/README.md) for using Xilinx IDE
