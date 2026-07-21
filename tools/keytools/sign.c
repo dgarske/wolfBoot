@@ -1351,7 +1351,7 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
         uint8_t *base_hash, uint32_t base_hash_sz)
 {
     uint32_t header_idx;
-    uint8_t *header;
+    uint8_t *header = NULL;
     FILE *f = NULL, *f2 = NULL, *fek = NULL, *fef = NULL;
     uint32_t fw_version32;
     struct stat attrib;
@@ -1386,10 +1386,14 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
             struct stat file_stat;
             if (stat(CMD.cert_chain_file, &file_stat) == 0) {
                 off_t chain_file_sz = file_stat.st_size;
-                if ((chain_file_sz < 0) ||
-                    ((uintmax_t)chain_file_sz > (uintmax_t)UINT32_MAX)) {
+                if (chain_file_sz < 0) {
                     printf("Warning: certificate chain file size is invalid "
                         "(%jd)\n", (intmax_t)chain_file_sz);
+                }
+                else if ((uintmax_t)chain_file_sz > (uintmax_t)UINT16_MAX) {
+                    printf("Error: Certificate chain too large for TLV encoding "
+                        "(%ju > %u)\n", (uintmax_t)chain_file_sz, UINT16_MAX);
+                    goto failure;
                 }
                 else {
                     cert_chain_sz = (uint32_t)chain_file_sz;
@@ -1410,6 +1414,11 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
             const uint32_t min_header_size = 256;
             uint32_t       new_size        = min_header_size;
             while (new_size < required_space) {
+                if (new_size > (UINT32_MAX / 2U)) {
+                    printf("Error: Header size overflow while sizing "
+                        "manifest header\n");
+                    goto failure;
+                }
                 new_size *= 2;
             }
 
@@ -3177,7 +3186,7 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Too many custom TLVs.\n");
                 exit(16);
             }
-            if (argc < (i + 3)) {
+            if (argc < (i + 4)) {
                 fprintf(stderr, "Invalid custom TLV fields. \n");
                 exit(16);
             }
@@ -3214,7 +3223,7 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Too many custom TLVs.\n");
                 exit(16);
             }
-            if (argc < (i + 2)) {
+            if (argc < (i + 3)) {
                 fprintf(stderr, "Invalid custom TLV fields. \n");
                 exit(16);
             }
@@ -3232,6 +3241,11 @@ int main(int argc, char** argv)
                 fprintf(stderr, "custom tlv buffer size too big: "
                     "%lu bytes (max %u)\n", (unsigned long)(slen / 2),
                     UINT16_MAX);
+                exit(16);
+            }
+            if ((slen % 2) != 0) {
+                fprintf(stderr, "custom tlv buffer hex string must have an "
+                    "even number of digits: %s\n", argv[i + 2]);
                 exit(16);
             }
             len = (uint16_t)(slen / 2);
@@ -3257,7 +3271,7 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Too many custom TLVs.\n");
                 exit(16);
             }
-            if (argc < (i + 2)) {
+            if (argc < (i + 3)) {
                 fprintf(stderr, "Invalid custom TLV fields. \n");
                 exit(16);
             }
@@ -3299,7 +3313,7 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Too many custom TLVs.\n");
                 exit(16);
             }
-            if (argc < (i + 2)) {
+            if (argc < (i + 3)) {
                 fprintf(stderr, "Invalid custom TLV fields. \n");
                 exit(16);
             }
