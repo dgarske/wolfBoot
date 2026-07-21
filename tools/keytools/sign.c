@@ -1377,42 +1377,46 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
 
     /* Check certificate chain file size before allocating header, and adjust
      * header size if needed */
-    if (CMD.cert_chain_file != NULL) {
-        struct stat file_stat;
+    if ((CMD.cert_chain_file != NULL) || (CMD.custom_tlvs > 0)) {
+        uint32_t cert_chain_sz = 0;
+        uint32_t required_space;
 
-        /* Get the file size */
-        if (stat(CMD.cert_chain_file, &file_stat) == 0) {
-            off_t chain_file_sz = file_stat.st_size;
-            uint32_t required_space;
-
-            if ((chain_file_sz < 0) ||
-                ((uintmax_t)chain_file_sz > (uintmax_t)UINT32_MAX)) {
-                printf("Warning: certificate chain file size is invalid (%jd)\n",
-                    (intmax_t)chain_file_sz);
-            }
-            else {
-                required_space = header_required_size(is_diff,
-                    (uint32_t)chain_file_sz, secondary_key_sz);
-
-                /* If the current header size is too small, increase it */
-                if (CMD.header_sz < required_space) {
-                    /* Round up to nearest power of 2 that can hold the chain */
-                    const uint32_t min_header_size = 256;
-                    uint32_t       new_size        = min_header_size;
-                    while (new_size < required_space) {
-                        new_size *= 2;
-                    }
-
-                    printf("Increasing header size from %u to %u bytes to fit "
-                        "certificate chain\n",
-                        CMD.header_sz, new_size);
-                    CMD.header_sz = new_size;
+        /* Get the certificate chain file size */
+        if (CMD.cert_chain_file != NULL) {
+            struct stat file_stat;
+            if (stat(CMD.cert_chain_file, &file_stat) == 0) {
+                off_t chain_file_sz = file_stat.st_size;
+                if ((chain_file_sz < 0) ||
+                    ((uintmax_t)chain_file_sz > (uintmax_t)UINT32_MAX)) {
+                    printf("Warning: certificate chain file size is invalid "
+                        "(%jd)\n", (intmax_t)chain_file_sz);
+                }
+                else {
+                    cert_chain_sz = (uint32_t)chain_file_sz;
                 }
             }
+            else {
+                printf("Warning: Could not stat certificate chain file %s: %s\n",
+                       CMD.cert_chain_file, strerror(errno));
+            }
         }
-        else {
-            printf("Warning: Could not stat certificate chain file %s: %s\n",
-                   CMD.cert_chain_file, strerror(errno));
+
+        required_space = header_required_size(is_diff, cert_chain_sz,
+            secondary_key_sz);
+
+        /* If the current header size is too small, increase it */
+        if (CMD.header_sz < required_space) {
+            /* Round up to nearest power of 2 that can hold all fields */
+            const uint32_t min_header_size = 256;
+            uint32_t       new_size        = min_header_size;
+            while (new_size < required_space) {
+                new_size *= 2;
+            }
+
+            printf("Increasing header size from %u to %u bytes to fit "
+                "manifest header fields\n",
+                CMD.header_sz, new_size);
+            CMD.header_sz = new_size;
         }
     }
 
@@ -2530,35 +2534,37 @@ static int base_diff(const char *f_base, uint8_t *pubkey, uint32_t pubkey_sz, in
         len3++;
     }
     /* make_header_delta() below calls make_header_ex(is_diff=1), which may grow
-     * CMD.header_sz to fit the delta TLVs plus certificate chain. Resolve that
-     * expansion here, using the same logic, so patch_inv_off reflects the header
-     * size actually written; otherwise HDR_IMG_DELTA_INVERSE would encode a
-     * stale, too-small offset and break inverse-patch rollback. */
-    if (CMD.cert_chain_file != NULL) {
-        struct stat cc_stat;
-        if ((stat(CMD.cert_chain_file, &cc_stat) == 0) &&
-            (cc_stat.st_size >= 0)) {
-            if ((uintmax_t)cc_stat.st_size > (uintmax_t)UINT16_MAX) {
-                printf("Error: Certificate chain too large for TLV encoding "
-                    "(%ju > %u)\n", (uintmax_t)cc_stat.st_size, UINT16_MAX);
-                goto cleanup;
-            }
-            else {
-                uint32_t required_space = header_required_size(1,
-                    (uint32_t)cc_stat.st_size, 0);
-                if (CMD.header_sz < required_space) {
-                    uint32_t new_size = 256;
-                    while (new_size < required_space) {
-                        if (new_size > (UINT32_MAX / 2U)) {
-                            printf("Error: Header size overflow while sizing "
-                                "certificate chain\n");
-                            goto cleanup;
-                        }
-                        new_size *= 2;
-                    }
-                    CMD.header_sz = new_size;
+     * CMD.header_sz to fit the delta TLVs, custom TLVs and certificate chain.
+     * Resolve that expansion here, using the same logic, so patch_inv_off
+     * reflects the header size actually written; otherwise HDR_IMG_DELTA_INVERSE
+     * would encode a stale, too-small offset and break inverse-patch rollback. */
+    if ((CMD.cert_chain_file != NULL) || (CMD.custom_tlvs > 0)) {
+        uint32_t cert_chain_sz = 0;
+        uint32_t required_space;
+        if (CMD.cert_chain_file != NULL) {
+            struct stat cc_stat;
+            if ((stat(CMD.cert_chain_file, &cc_stat) == 0) &&
+                (cc_stat.st_size >= 0)) {
+                if ((uintmax_t)cc_stat.st_size > (uintmax_t)UINT16_MAX) {
+                    printf("Error: Certificate chain too large for TLV encoding "
+                        "(%ju > %u)\n", (uintmax_t)cc_stat.st_size, UINT16_MAX);
+                    goto cleanup;
                 }
+                cert_chain_sz = (uint32_t)cc_stat.st_size;
             }
+        }
+        required_space = header_required_size(1, cert_chain_sz, 0);
+        if (CMD.header_sz < required_space) {
+            uint32_t new_size = 256;
+            while (new_size < required_space) {
+                if (new_size > (UINT32_MAX / 2U)) {
+                    printf("Error: Header size overflow while sizing "
+                        "manifest header\n");
+                    goto cleanup;
+                }
+                new_size *= 2;
+            }
+            CMD.header_sz = new_size;
         }
     }
     patch_inv_off = (uint32_t)len3 + CMD.header_sz;
@@ -3202,6 +3208,7 @@ int main(int argc, char** argv)
         } else if (strcmp(argv[i], "--custom-tlv-buffer") == 0) {
             int p = CMD.custom_tlvs;
             uint16_t tag, len;
+            size_t slen;
             uint32_t j;
             if (p >= MAX_CUSTOM_TLVS) {
                 fprintf(stderr, "Too many custom TLVs.\n");
@@ -3212,7 +3219,7 @@ int main(int argc, char** argv)
                 exit(16);
             }
             tag = (uint16_t)arg2num(argv[i + 1], 2);
-            len = (uint16_t)strlen(argv[i + 2]) / 2;
+            slen = strlen(argv[i + 2]);
             if (tag < 0x0030) {
                 fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
                 exit(16);
@@ -3221,10 +3228,13 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
                 exit(16);
             }
-            if (len > 255) {
-                fprintf(stderr, "custom tlv buffer size too big: %s\n", argv[i + 2]);
+            if ((slen / 2) > UINT16_MAX) {
+                fprintf(stderr, "custom tlv buffer size too big: "
+                    "%lu bytes (max %u)\n", (unsigned long)(slen / 2),
+                    UINT16_MAX);
                 exit(16);
             }
+            len = (uint16_t)(slen / 2);
             CMD.custom_tlv[p].tag = tag;
             CMD.custom_tlv[p].len = len;
             CMD.custom_tlv[p].buffer = malloc(len);
@@ -3241,6 +3251,7 @@ int main(int argc, char** argv)
         } else if (strcmp(argv[i], "--custom-tlv-string") == 0) {
             int p = CMD.custom_tlvs;
             uint16_t tag, len;
+            size_t slen;
             uint32_t j;
             if (p >= MAX_CUSTOM_TLVS) {
                 fprintf(stderr, "Too many custom TLVs.\n");
@@ -3251,7 +3262,7 @@ int main(int argc, char** argv)
                 exit(16);
             }
             tag = (uint16_t)arg2num(argv[i + 1], 2);
-            len = (uint16_t)strlen(argv[i + 2]);
+            slen = strlen(argv[i + 2]);
             if (tag < 0x0030) {
                 fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
                 exit(16);
@@ -3260,10 +3271,12 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
                 exit(16);
             }
-            if (len > 255) {
-                fprintf(stderr, "custom tlv buffer size too big: %s\n", argv[i + 2]);
+            if (slen > UINT16_MAX) {
+                fprintf(stderr, "custom tlv string size too big: "
+                    "%lu bytes (max %u)\n", (unsigned long)slen, UINT16_MAX);
                 exit(16);
             }
+            len = (uint16_t)slen;
             CMD.custom_tlv[p].tag = tag;
             CMD.custom_tlv[p].len = len;
             CMD.custom_tlv[p].buffer = malloc(len);
