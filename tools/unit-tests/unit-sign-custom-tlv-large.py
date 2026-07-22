@@ -235,7 +235,7 @@ def main():
         r = run_sign(["--custom-tlv-file", hex(TAG_FILE), max_file],
                      image, key, "1")
         if r.returncode != 0:
-            fail("max: sign failed for 65535-byte TLV: " +
+            fail("max: sign failed for 65524-byte TLV: " +
                  r.stderr.strip()[:200])
         else:
             res = check_signed_layout("max", signed_name(image, "1"), payload)
