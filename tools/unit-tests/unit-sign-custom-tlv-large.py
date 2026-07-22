@@ -1,34 +1,12 @@
 #!/usr/bin/env python3
 # unit-sign-custom-tlv-large.py
 #
-# Coverage for large custom TLVs in the C sign tool (tools/keytools/sign.c).
-#
-# Custom TLV values passed with --custom-tlv-buffer and --custom-tlv-string
-# were historically capped at 255 bytes.  The cap is now 65524 bytes, the
-# largest value the header parsers can walk past; a longer value hides
-# every field after it, including the signature, from wolfBoot.
-# --custom-tlv-file loads a value from a raw binary file, and
-# make_header_ex() grows the manifest header to the next power of two when
-# the custom TLVs do not fit.  The delta signing path (base_diff())
-# pre-computes the same growth before capturing patch_inv_off, so
-# HDR_IMG_DELTA_INVERSE matches the header actually written.
-#
-# This test drives the C sign binary and asserts:
-#   - a >255-byte --custom-tlv-buffer, --custom-tlv-string and
-#     --custom-tlv-file value each land byte-exact in the manifest header,
-#     parsed the same way wolfBoot_find_header() walks it
-#   - the header grows to a power of two and the firmware payload starts
-#     exactly at the grown header size (header size derived from
-#     filesize - payload size, not from the tool's stdout)
-#   - the 65524-byte maximum is accepted via --custom-tlv-file and every
-#     header field is still reachable by the parser walk
-#   - a 65525-byte file, a 65525-char string, an empty file and a missing
-#     file are all rejected without producing a signed image
-#   - a delta image signed with a large custom TLV keeps
-#     HDR_IMG_DELTA_INVERSE consistent with the grown header: the inverse
-#     patch must be the trailing HDR_IMG_DELTA_INVERSE_SIZE bytes of the
-#     file, which fails if base_diff() sizes the header differently from
-#     make_header_ex()
+# Tests large custom TLVs in the C sign tool (tools/keytools/sign.c):
+# values up to the 65524-byte maximum via --custom-tlv-buffer,
+# --custom-tlv-string and --custom-tlv-file, automatic power-of-two growth
+# of the manifest header, rejection of oversized, empty or missing values,
+# and delta images keeping HDR_IMG_DELTA_INVERSE consistent with the grown
+# header.
 #
 # Copyright (C) 2026 wolfSSL Inc.
 #
@@ -336,12 +314,10 @@ def main():
                                  "forward patch (header %d + %d)" %
                                  (inv_off, hdr, fwd_sz))
 
-        # Boundary delta: size the TLV so the non-delta header fits in a
-        # power of two but the extra delta TLVs push past it.  The full v2
-        # image is signed first, so base_diff() starts from the non-delta
-        # header size and must pre-grow it before capturing patch_inv_off;
-        # without the pre-grow, HDR_IMG_DELTA_INVERSE is stale by a full
-        # header step and no longer points at the trailing inverse patch.
+        # Boundary delta: size the TLV so the header fits a power of two
+        # without the delta TLVs but not with them. base_diff() must grow
+        # the header before capturing patch_inv_off, or HDR_IMG_DELTA_INVERSE
+        # points a full header step short of the trailing inverse patch.
         bnd_val = bytes((i * 11 + 3) & 0xFF for i in range(800))
         bnd_file = os.path.join(work, "bnd.bin")
         with open(bnd_file, "wb") as f:

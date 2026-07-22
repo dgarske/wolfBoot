@@ -78,11 +78,10 @@ static inline int fp_truncate(FILE *f, size_t len)
 #define MAX_CUSTOM_TLVS (16)
 #endif
 
-/* The header parsers in wolfBoot and this tool bound each field to
+/* wolfBoot and this tool stop parsing at any header field larger than
  * (uint16_t)(header size - IMAGE_HEADER_OFFSET), at most 65528 including the
- * 4-byte tag and length, so the largest value they can walk past is 65524.
- * A longer field ends the walk and hides the fields after it, including the
- * signature. */
+ * 4-byte tag and length, so the largest usable value is 65524. A longer
+ * field would hide every field after it, including the signature. */
 #define MAX_TLV_LEN (65524)
 
 #include <wolfssl/wolfcrypt/settings.h>
@@ -1388,7 +1387,6 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
         uint32_t hdr_cert_chain_sz = 0;
         uint32_t required_space;
 
-        /* Get the certificate chain file size */
         if (CMD.cert_chain_file != NULL) {
             struct stat file_stat;
             if (stat(CMD.cert_chain_file, &file_stat) == 0) {
@@ -3498,7 +3496,6 @@ int main(int argc, char** argv)
             printf("TLV %u\n", i);
             printf("----\n");
             if (CMD.custom_tlv[i].buffer) {
-                /* only print the first 256 bytes of large values */
                 uint16_t print_len = CMD.custom_tlv[i].len;
                 if (print_len > 256) {
                     print_len = 256;
