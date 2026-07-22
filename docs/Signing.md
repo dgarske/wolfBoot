@@ -255,14 +255,14 @@ Provides a value to be set with a custom tag
    * `--custom-tlv-buffer tag value`: Adds a TLV entry with arbitrary length to the manifest
    header, corresponding to the type identified by `tag`, and assigns the value `value`. The
    tag is a 16-bit number. Valid tags are in the range between 0x0030 and 0xFEFE. The length
-   is implicit, and is the length of the value. The maximum length is 65535 bytes.
+   is implicit, and is the length of the value. The maximum length is 65524 bytes.
    Value argument is in the form of a hex string, e.g. `--custom-tlv-buffer 0x0030 AABBCCDDEE`
    will add a TLV entry with tag 0x0030, length 5 and value 0xAABBCCDDEE.
 
    * `--custom-tlv-string tag ascii-string`: Adds a TLV entry with arbitrary length to the manifest
    header, corresponding to the type identified by `tag`, and assigns the value of `ascii-string`. The
    tag is a 16-bit number. Valid tags are in the range between 0x0030 and 0xFEFE. The length
-   is implicit, and is the length of the `ascii-string`. The maximum length is 65535 bytes.
+   is implicit, and is the length of the `ascii-string`. The maximum length is 65524 bytes.
    `ascii-string` argument is in the form of a string,
    e.g. `--custom-tlv-string 0x0030 "Version-1"` will add a TLV entry with tag 0x0030,
    length 9 and value Version-1.
@@ -271,8 +271,11 @@ Provides a value to be set with a custom tag
    header, corresponding to the type identified by `tag`, with the value read as raw bytes
    from the file `filename`. The tag is a 16-bit number. Valid tags are in the range between
    0x0030 and 0xFEFE. The length is implicit, and is the size of the file. The maximum length
-   is 65535 bytes. Unlike `--custom-tlv-buffer`, the value is not passed on the command line,
+   is 65524 bytes. Unlike `--custom-tlv-buffer`, the value is not passed on the command line,
    so large binary values are not subject to the OS argument length limits.
+
+   The 65524-byte maximum is the largest TLV value the wolfBoot header parser can walk
+   past when locating the fields that follow it, such as the signature.
 
    If the custom TLVs do not fit in the configured header size, the sign tool automatically
    increases the size of the manifest header, rounding up to the next power of two. wolfBoot

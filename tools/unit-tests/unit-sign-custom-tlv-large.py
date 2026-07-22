@@ -4,12 +4,14 @@
 # Coverage for large custom TLVs in the C sign tool (tools/keytools/sign.c).
 #
 # Custom TLV values passed with --custom-tlv-buffer and --custom-tlv-string
-# were historically capped at 255 bytes.  The cap is now the TLV wire-format
-# limit of 65535 bytes (16-bit length field), --custom-tlv-file loads a value
-# from a raw binary file, and make_header_ex() grows the manifest header to
-# the next power of two when the custom TLVs do not fit.  The delta signing
-# path (base_diff()) pre-computes the same growth before capturing
-# patch_inv_off, so HDR_IMG_DELTA_INVERSE matches the header actually written.
+# were historically capped at 255 bytes.  The cap is now 65524 bytes, the
+# largest value the header parsers can walk past; a longer value hides
+# every field after it, including the signature, from wolfBoot.
+# --custom-tlv-file loads a value from a raw binary file, and
+# make_header_ex() grows the manifest header to the next power of two when
+# the custom TLVs do not fit.  The delta signing path (base_diff())
+# pre-computes the same growth before capturing patch_inv_off, so
+# HDR_IMG_DELTA_INVERSE matches the header actually written.
 #
 # This test drives the C sign binary and asserts:
 #   - a >255-byte --custom-tlv-buffer, --custom-tlv-string and
@@ -18,8 +20,9 @@
 #   - the header grows to a power of two and the firmware payload starts
 #     exactly at the grown header size (header size derived from
 #     filesize - payload size, not from the tool's stdout)
-#   - the 65535-byte format maximum is accepted via --custom-tlv-file
-#   - a 65536-byte file, a 65536-char string, an empty file and a missing
+#   - the 65524-byte maximum is accepted via --custom-tlv-file and every
+#     header field is still reachable by the parser walk
+#   - a 65525-byte file, a 65525-char string, an empty file and a missing
 #     file are all rejected without producing a signed image
 #   - a delta image signed with a large custom TLV keeps
 #     HDR_IMG_DELTA_INVERSE consistent with the grown header: the inverse
@@ -86,6 +89,11 @@ def parse_tlvs(data, scan_end):
             p += 1
             continue
         length = data[p + 2] | (data[p + 3] << 8)
+        # wolfBoot_find_header() stops at any field larger than the header
+        # capacity truncated to uint16_t, so this walk must stop too or the
+        # test would accept images wolfBoot cannot read
+        if 4 + length > (scan_end - 8) & 0xFFFF:
+            break
         if p + 4 + length > scan_end:
             break
         if htype not in tlvs:
@@ -239,8 +247,8 @@ def main():
                             str_val.encode("ascii"))
                 check_value("large", tlvs, TAG_FILE, file_val)
 
-        # Format maximum: 65535 bytes via file.
-        max_val = bytes((i * 3 + 1) & 0xFF for i in range(65535))
+        # Largest value the header parsers can walk past (see parse_tlvs).
+        max_val = bytes((i * 3 + 1) & 0xFF for i in range(65524))
         max_file = os.path.join(work, "max.bin")
         with open(max_file, "wb") as f:
             f.write(max_val)
@@ -263,13 +271,13 @@ def main():
 
         over_file = os.path.join(work, "over.bin")
         with open(over_file, "wb") as f:
-            f.write(b"\x00" * 65536)
-        expect_reject("reject-file-65536",
+            f.write(b"\x00" * 65525)
+        expect_reject("reject-file-65525",
                       ["--custom-tlv-file", hex(TAG_FILE), over_file],
                       image, key, "1", "too big")
 
-        expect_reject("reject-string-65536",
-                      ["--custom-tlv-string", hex(TAG_STRING), "X" * 65536],
+        expect_reject("reject-string-65525",
+                      ["--custom-tlv-string", hex(TAG_STRING), "X" * 65525],
                       image, key, "1", "too big")
 
         empty_file = os.path.join(work, "empty.bin")

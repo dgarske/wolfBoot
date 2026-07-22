@@ -78,6 +78,13 @@ static inline int fp_truncate(FILE *f, size_t len)
 #define MAX_CUSTOM_TLVS (16)
 #endif
 
+/* The header parsers in wolfBoot and this tool bound each field to
+ * (uint16_t)(header size - IMAGE_HEADER_OFFSET), at most 65528 including the
+ * 4-byte tag and length, so the largest value they can walk past is 65524.
+ * A longer field ends the walk and hides the fields after it, including the
+ * signature. */
+#define MAX_TLV_LEN (65524)
+
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/wolfcrypt/asn.h>
 #include <wolfssl/wolfcrypt/aes.h>
@@ -1390,9 +1397,9 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
                     printf("Warning: certificate chain file size is invalid "
                         "(%jd)\n", (intmax_t)chain_file_sz);
                 }
-                else if ((uintmax_t)chain_file_sz > (uintmax_t)UINT16_MAX) {
+                else if ((uintmax_t)chain_file_sz > (uintmax_t)MAX_TLV_LEN) {
                     printf("Error: Certificate chain too large for TLV encoding "
-                        "(%ju > %u)\n", (uintmax_t)chain_file_sz, UINT16_MAX);
+                        "(%ju > %u)\n", (uintmax_t)chain_file_sz, MAX_TLV_LEN);
                     goto failure;
                 }
                 else {
@@ -1422,9 +1429,11 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
                 new_size *= 2;
             }
 
-            printf("Increasing header size from %u to %u bytes to fit "
-                "manifest header fields\n",
-                CMD.header_sz, new_size);
+            fprintf(stderr, "Warning: increasing header size from %u to %u "
+                "bytes to fit manifest header fields.\n"
+                "Warning: wolfBoot must be built with IMAGE_HEADER_SIZE=%u "
+                "or it will not find the firmware image.\n",
+                CMD.header_sz, new_size, new_size);
             CMD.header_sz = new_size;
         }
     }
@@ -1585,10 +1594,10 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
         }
         cert_chain_sz = (uint32_t)file_stat.st_size;
 
-        if (cert_chain_sz > (uint32_t)UINT16_MAX) {
+        if (cert_chain_sz > (uint32_t)MAX_TLV_LEN) {
             printf("Error: Certificate chain too large for TLV encoding "
                    "(%u > %u)\n",
-                   cert_chain_sz, (unsigned int)UINT16_MAX);
+                   cert_chain_sz, (unsigned int)MAX_TLV_LEN);
             fclose(f);
             f = NULL;
             goto failure;
@@ -2554,9 +2563,9 @@ static int base_diff(const char *f_base, uint8_t *pubkey, uint32_t pubkey_sz, in
             struct stat cc_stat;
             if ((stat(CMD.cert_chain_file, &cc_stat) == 0) &&
                 (cc_stat.st_size >= 0)) {
-                if ((uintmax_t)cc_stat.st_size > (uintmax_t)UINT16_MAX) {
+                if ((uintmax_t)cc_stat.st_size > (uintmax_t)MAX_TLV_LEN) {
                     printf("Error: Certificate chain too large for TLV encoding "
-                        "(%ju > %u)\n", (uintmax_t)cc_stat.st_size, UINT16_MAX);
+                        "(%ju > %u)\n", (uintmax_t)cc_stat.st_size, MAX_TLV_LEN);
                     goto cleanup;
                 }
                 cert_chain_sz = (uint32_t)cc_stat.st_size;
@@ -2573,6 +2582,11 @@ static int base_diff(const char *f_base, uint8_t *pubkey, uint32_t pubkey_sz, in
                 }
                 new_size *= 2;
             }
+            fprintf(stderr, "Warning: increasing header size from %u to %u "
+                "bytes to fit manifest header fields.\n"
+                "Warning: wolfBoot must be built with IMAGE_HEADER_SIZE=%u "
+                "or it will not find the firmware image.\n",
+                CMD.header_sz, new_size, new_size);
             CMD.header_sz = new_size;
         }
     }
@@ -3237,10 +3251,10 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
                 exit(16);
             }
-            if ((slen / 2) > UINT16_MAX) {
+            if ((slen / 2) > MAX_TLV_LEN) {
                 fprintf(stderr, "custom tlv buffer size too big: "
                     "%lu bytes (max %u)\n", (unsigned long)(slen / 2),
-                    UINT16_MAX);
+                    MAX_TLV_LEN);
                 exit(16);
             }
             if ((slen % 2) != 0) {
@@ -3285,9 +3299,9 @@ int main(int argc, char** argv)
                 fprintf(stderr, "Invalid custom tag: %s\n", argv[i + 1]);
                 exit(16);
             }
-            if (slen > UINT16_MAX) {
+            if (slen > MAX_TLV_LEN) {
                 fprintf(stderr, "custom tlv string size too big: "
-                    "%lu bytes (max %u)\n", (unsigned long)slen, UINT16_MAX);
+                    "%lu bytes (max %u)\n", (unsigned long)slen, MAX_TLV_LEN);
                 exit(16);
             }
             len = (uint16_t)slen;
@@ -3341,9 +3355,9 @@ int main(int argc, char** argv)
                 fclose(f);
                 exit(16);
             }
-            if (fsz > UINT16_MAX) {
+            if (fsz > (long)MAX_TLV_LEN) {
                 fprintf(stderr, "custom tlv file too big: %ld bytes "
-                    "(max %u): %s\n", fsz, UINT16_MAX, argv[i + 2]);
+                    "(max %u): %s\n", fsz, MAX_TLV_LEN, argv[i + 2]);
                 fclose(f);
                 exit(16);
             }
