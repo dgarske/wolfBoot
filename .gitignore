@@ -225,6 +225,7 @@ tools/unit-tests/unit-update-ram-enc
 tools/unit-tests/unit-update-ram-enc-nopart
 tools/unit-tests/unit-va416x0-fram
 tools/unit-tests/unit-wolfhsm_flash_hal
+tools/unit-tests/__pycache__/*
 
 
 
