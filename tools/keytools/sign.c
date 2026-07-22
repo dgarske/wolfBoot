@@ -1378,7 +1378,7 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
     /* Check certificate chain file size before allocating header, and adjust
      * header size if needed */
     if ((CMD.cert_chain_file != NULL) || (CMD.custom_tlvs > 0)) {
-        uint32_t cert_chain_sz = 0;
+        uint32_t hdr_cert_chain_sz = 0;
         uint32_t required_space;
 
         /* Get the certificate chain file size */
@@ -1396,7 +1396,7 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
                     goto failure;
                 }
                 else {
-                    cert_chain_sz = (uint32_t)chain_file_sz;
+                    hdr_cert_chain_sz = (uint32_t)chain_file_sz;
                 }
             }
             else {
@@ -1405,8 +1405,8 @@ static int make_header_ex(int is_diff, uint8_t *pubkey, uint32_t pubkey_sz,
             }
         }
 
-        required_space = header_required_size(is_diff, cert_chain_sz,
-            secondary_key_sz);
+        required_space =
+            header_required_size(is_diff, hdr_cert_chain_sz, secondary_key_sz);
 
         /* If the current header size is too small, increase it */
         if (CMD.header_sz < required_space) {
