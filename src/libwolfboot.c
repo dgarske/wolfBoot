@@ -32,6 +32,13 @@
 #include "image.h"
 #include "printf.h"
 
+#ifdef WATCHDOG
+/* Weak no-op default; a port HAL overrides this to service the watchdog. */
+void WEAKFUNCTION wolfBoot_watchdog_feed(void)
+{
+}
+#endif
+
 #ifdef UNIT_TEST
 /**
  * @def unit_dbg
