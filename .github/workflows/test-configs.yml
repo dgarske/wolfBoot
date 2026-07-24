@@ -862,3 +862,27 @@ jobs:
       arch: arm
       config-file: ./config/examples/rp2350.config
       target: rp2350
+
+  # Renesas RX builds (GNURX). Gated on ENABLE_RENESAS_RX_CI until the
+  # wolfboot-ci-rx image is published (GNURX is login-gated).
+  renesas_rx65n_test:
+    if: ${{ vars.ENABLE_RENESAS_RX_CI == 'true' }}
+    uses: ./.github/workflows/test-build-renesas-rx.yml
+    with:
+      arch: rx
+      config-file: ./config/examples/renesas-rx65n.config
+
+  renesas_rx65n_bigendian_test:
+    if: ${{ vars.ENABLE_RENESAS_RX_CI == 'true' }}
+    uses: ./.github/workflows/test-build-renesas-rx.yml
+    with:
+      arch: rx
+      config-file: ./config/examples/renesas-rx65n.config
+      make-args: BIG_ENDIAN=1 DEBUG_SYMBOLS=1
+
+  renesas_rx72n_test:
+    if: ${{ vars.ENABLE_RENESAS_RX_CI == 'true' }}
+    uses: ./.github/workflows/test-build-renesas-rx.yml
+    with:
+      arch: rx
+      config-file: ./config/examples/renesas-rx72n.config
