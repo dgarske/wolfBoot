@@ -484,7 +484,10 @@
 #define ZYNQMP_GEM_MDC_DIV      5
 #endif
 
-/* PHY MDIO address (clause-22). Default 0x0C = ZCU102 on-board DP83867. */
+/* PHY MDIO address (clause-22) the sequence is replayed to. Default 0x0C =
+ * ZCU102 on-board DP83867. On a multi-port PHY a vendor chip-global register
+ * is typically reachable only through the first port's address, so replay a
+ * global setting there even when a later port carries the traffic. */
 #ifndef ZYNQMP_PHY_ADDR
 #define ZYNQMP_PHY_ADDR         0x0C
 #endif
