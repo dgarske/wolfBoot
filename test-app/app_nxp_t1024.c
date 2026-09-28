@@ -161,7 +161,9 @@ void main(void)
             *p++ = 0;
     }
 
+#ifdef DEBUG_UART
     uart_init();
+#endif
 
     wolfBoot_printf("========================\r\n");
     wolfBoot_printf("NXP T1024 wolfBoot demo Application\r\n");
