@@ -385,7 +385,9 @@ void law_init(void)
 static void hal_flash_init(void)
 {
 #ifdef ENABLE_IFC
+#ifdef DEBUG_UART
     uint32_t cspr;
+#endif
 
     /* IFC CS0 - NOR Flash
      * Do NOT reprogram IFC CS0 base address, port size, AMASK, CSOR, or
@@ -397,8 +399,8 @@ static void hal_flash_init(void)
      * sequences (erase/program) from reaching the chips. Clearing just
      * the WP bit is safe during XIP — it doesn't change chip-select
      * decode, only enables write forwarding. */
-    cspr = get32(IFC_CSPR(0));
 #ifdef DEBUG_UART
+    cspr = get32(IFC_CSPR(0));
     wolfBoot_printf("IFC CSPR0: 0x%x%s\n", cspr,
         (cspr & IFC_CSPR_WP) ? " (WP set)" : "");
 #endif
