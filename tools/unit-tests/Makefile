@@ -136,6 +136,7 @@ TESTS+=unit-imx8qm-flexspi-write
 TESTS+=unit-imx95-ele
 TESTS+=unit-imx95-disk
 TESTS+=unit-versal-ext-write
+TESTS+=unit-versal-uart-rx
 TESTS+=unit-t10xx-qe-firmware
 TESTS+=unit-t10xx-flash-status
 TESTS+=unit-p1021-erase-advance
@@ -1529,6 +1530,16 @@ versal_ext_write_extract.h: ../../hal/versal.c
 unit-versal-ext-write: unit-versal-ext-write.c versal_qspidev_extract.h versal_ext_write_extract.h versal_host.h
 	gcc -o $@ unit-versal-ext-write.c -DEXT_FLASH -DARCH_AARCH64 -DARCH_64BIT $(CFLAGS) $(LDFLAGS)
 
+# unit-versal-uart-rx runs the real uart_rx() from hal/versal.c against
+# an emulated PL011 register block. UART_REG() resolves to an absolute
+# MMIO address, so the function is extracted verbatim and the test
+# redefines the accessor over a local array.
+versal_uart_rx_extract.h: ../../hal/versal.c
+	sed -n '/^int uart_rx(/,/^}/p' $< > $@
+
+unit-versal-uart-rx: unit-versal-uart-rx.c versal_uart_rx_extract.h versal_host.h
+	gcc -o $@ unit-versal-uart-rx.c -DARCH_AARCH64 -DARCH_64BIT $(CFLAGS) $(LDFLAGS)
+
 # unit-t10xx-qe-firmware runs the real qe_check_firmware() from
 # hal/nxp_t10xx.c (the per-microcode code_offset was never
 # bounded against the declared image, so a self-consistent blob could
@@ -2175,7 +2186,8 @@ GENERATED_SRC:=aurix_erased_extract.h \
 	t10xx_flash_status_extract.h t10xx_qe_firmware_extract.h \
 	t2080_fman_extract.h \
 	ti_hercules_write_extract.h versal_ext_write_extract.h versal_host.c \
-	versal_host.h versal_qspidev_extract.h zynq_erase_extract.h \
+	versal_host.h versal_qspidev_extract.h versal_uart_rx_extract.h \
+	zynq_erase_extract.h \
 	zynq_write_extract.h \
 	fat32-test.img fat32-test.img.tmp fat32-payload.bin fat32-nested.bin \
 	fat32-short.bin ext4-min.img ext4-stock.img ext4-payload.bin \
