@@ -89,6 +89,7 @@ TESTS+=unit-pkcs11-pin-zeroize
 TESTS+=unit-ubootenv
 TESTS+=unit-diagnostics
 TESTS+=unit-psoc-c3-divider
+TESTS+=unit-psoc-e8-tz
 TESTS+=unit-diagnostics-256
 TESTS+=unit-fit-gzip unit-fit-nogzip
 TESTS+=unit-gzip-small unit-gzip-bits32 unit-gzip-root7 unit-fit-gzip-small
@@ -606,6 +607,9 @@ unit-ns16550: unit-ns16550.c ../../hal/uart/ns16550.c
 
 unit-psoc-c3-divider: unit-psoc-c3-divider.c ../../hal/psoc_c3.h
 	gcc -o $@ unit-psoc-c3-divider.c $(CFLAGS) $(LDFLAGS)
+
+unit-psoc-e8-tz: unit-psoc-e8-tz.c ../../hal/psoc_e8_tz.c ../../hal/psoc_e8.h
+	gcc -o $@ unit-psoc-e8-tz.c -I../.. $(CFLAGS) $(LDFLAGS)
 
 unit-fdt-memrsv-wrap:CFLAGS+=-DWOLFBOOT_FDT
 unit-fdt-memrsv-wrap: unit-fdt-memrsv-wrap.c ../../src/fdt.c

@@ -67,6 +67,8 @@
 #endif
 #define PSOC_E8_UART_OVS        8UL
 
+#ifndef NONSECURE_APP
+
 static int peri_init_done;
 
 /* Ungate PERI0 group 1, which holds the SCBs. Ungating groups 3-5 as well
@@ -359,7 +361,7 @@ static void RAMFUNCTION rram_unlock(void)
 }
 
 /* Write within one 16-byte block; off / 16 is the physical block index.
- * data == NULL writes zeros, the RRAM form of an erase. */
+ * data == NULL fills with 0xFF, so an erased range reads like erased NOR. */
 static int RAMFUNCTION rram_write_block(uint32_t off, const uint8_t *data,
         uint32_t len)
 {
@@ -381,7 +383,7 @@ static int RAMFUNCTION rram_write_block(uint32_t off, const uint8_t *data,
             0U : blk[i];
     }
     for (i = 0; i < len; i++)
-        b[pos + i] = (data != NULL) ? data[i] : 0U;
+        b[pos + i] = (data != NULL) ? data[i] : 0xFFU;
     if (RRAMC_NVM_ADDR != phys)
         return -1;
 
@@ -526,7 +528,53 @@ int RAMFUNCTION hal_flash_write(uint32_t address, const uint8_t *data, int len)
     return ret;
 }
 
-#if defined(DEBUG_UART) || !defined(__WOLFBOOT)
+#endif /* !NONSECURE_APP */
+
+#if defined(NONSECURE_APP)
+
+/* The flash controller belongs to the Secure world; the application updates
+ * through the wolfBoot_nsc_* gateway calls instead. */
+void hal_flash_unlock(void)
+{
+}
+
+void hal_flash_lock(void)
+{
+}
+
+int hal_flash_erase(uint32_t address, int len)
+{
+    (void)address;
+    (void)len;
+    return -1;
+}
+
+int hal_flash_write(uint32_t address, const uint8_t *data, int len)
+{
+    (void)address;
+    (void)data;
+    (void)len;
+    return -1;
+}
+
+/* The console belongs to the Secure world; print through its gateway. */
+void uart_init(void)
+{
+}
+
+void uart_write(const char *buf, unsigned int sz)
+{
+    unsigned int n;
+
+    while (sz > 0U) {
+        n = (sz > PSOC_E8_NSC_UART_MAX) ? PSOC_E8_NSC_UART_MAX : sz;
+        psoc_e8_nsc_uart_write(buf, n);
+        buf += n;
+        sz -= n;
+    }
+}
+
+#elif defined(DEBUG_UART) || !defined(__WOLFBOOT)
 
 /* Set once the console SCB is clocked; gates every register access. */
 static int uart_ready;
@@ -584,6 +632,10 @@ void uart_write(const char *buf, unsigned int sz)
 void hal_init(void)
 {
     psoc_e8_peri_init();
+#ifdef TZEN
+    hal_gtzc_init();
+    hal_tz_sau_init();
+#endif
 #ifdef DEBUG_UART
     uart_init();
     uart_write("wolfBoot HAL Init\n", sizeof("wolfBoot HAL Init\n") - 1);

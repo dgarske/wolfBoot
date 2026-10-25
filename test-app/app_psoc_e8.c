@@ -27,6 +27,9 @@
 #include "wolfboot/wolfboot.h"
 #include "target.h"
 
+#ifdef WOLFCRYPT_TZ_WOLFHSM
+#include "wcs/wolfhsm_test.h"
+#endif
 #ifdef WOLFCRYPT_TEST
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfcrypt/test/test.h>
@@ -45,8 +48,30 @@ int benchmark_test(void *args);
 #define AIRCR_VKEY        (0x05FA << 16)
 #define AIRCR_SYSRESETREQ (1 << 2)
 
+/* With TrustZone the application is Non-secure and the update API is a set
+ * of Secure gateway calls. */
+#ifdef TZEN
+#define APP_FW_VERSION()     wolfBoot_nsc_current_firmware_version()
+#define APP_SUCCESS()        wolfBoot_nsc_success()
+#define APP_UPDATE_TRIGGER() wolfBoot_nsc_update_trigger()
+#else
+#define APP_FW_VERSION()     wolfBoot_current_firmware_version()
+#define APP_SUCCESS()        wolfBoot_success()
+#define APP_UPDATE_TRIGGER() wolfBoot_update_trigger()
+#endif
+
 extern void uart_init(void);
 extern void uart_write(const char *buf, unsigned int len);
+
+#ifdef WOLFCRYPT_TZ_WOLFHSM
+/* newlib stdout for the wolfHSM client tests. */
+int _write(int file, char *ptr, int len)
+{
+    (void)file;
+    uart_write(ptr, (unsigned int)len);
+    return len;
+}
+#endif
 
 static void uart_print(const char *s)
 {
@@ -101,11 +126,15 @@ void main(void)
     uart_init();
     uart_print("TEST APP\r\n");
 
-    version = wolfBoot_current_firmware_version();
+    version = APP_FW_VERSION();
     uart_print("App version: ");
     print_dec(version);
     uart_print("\r\n");
 
+#ifdef WOLFCRYPT_TZ_WOLFHSM
+    uart_print("Running wolfHSM client tests...\r\n");
+    (void)cmd_wolfhsm_test(NULL);
+#endif
 #ifdef WOLFCRYPT_TEST
     uart_print("Running wolfCrypt tests...\r\n");
     wolfCrypt_Init();
@@ -124,7 +153,7 @@ void main(void)
     /* v1 asks for an update and resets so wolfBoot performs the swap.
      * v2 and later confirm the update so it is not rolled back. */
     if (version >= 2) {
-        wolfBoot_success();
+        APP_SUCCESS();
         uart_print("update OK -- success confirmed\r\n");
         while (1)
             busy_delay(1000000);
@@ -138,6 +167,6 @@ void main(void)
         uart_print(".");
     }
     uart_print("\r\ntriggering update -> reset\r\n");
-    wolfBoot_update_trigger();
+    APP_UPDATE_TRIGGER();
     system_reset();
 }

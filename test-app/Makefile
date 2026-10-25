@@ -829,7 +829,11 @@ ifeq ($(TARGET),psoc_c3)
 endif
 
 ifeq ($(TARGET),psoc_e8)
-  LSCRIPT_TEMPLATE=ARM-psoc_e8.ld
+  ifeq ($(TZEN),1)
+    LSCRIPT_TEMPLATE=ARM-psoc_e8-ns.ld
+  else
+    LSCRIPT_TEMPLATE=ARM-psoc_e8.ld
+  endif
   # The app runs from the QSPI it programs, so its flash path runs from RAM.
   CFLAGS+=-DRAMFUNCTION='__attribute__((used,section(".ramcode"),long_call))'
   CFLAGS+=-mcpu=cortex-m33 -ffunction-sections -fdata-sections -fno-common

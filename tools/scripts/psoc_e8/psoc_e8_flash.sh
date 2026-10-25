@@ -4,6 +4,11 @@
 # after `make`; partition addresses are taken from .config.
 #
 # Usage: psoc_e8_flash.sh [--boot image_v1_signed.bin] [--update image_v2_signed.bin]
+#                         [--erase-keyvault]
+#
+# --erase-keyvault fills the wolfHSM NVM (WOLFBOOT_KEYVAULT_*) with 0xFF. Fresh
+# RRAM reads as zero, which the NVM does not accept as empty, so a board needs
+# this once before the first wolfHSM boot. It destroys any stored keys.
 #
 # Environment: MTB_PROGTOOLS (default /opt/Tools/ModusToolboxProgtools-1.6),
 # KITPROG_SERIAL to pick the probe when several are attached.
@@ -26,16 +31,19 @@ UPDATE_ADDR=$(config_addr WOLFBOOT_PARTITION_UPDATE_ADDRESS)
 
 BOOT_IMG=test-app/image_v1_signed.bin
 UPDATE_IMG=
+ERASE_KEYVAULT=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --boot) BOOT_IMG=$2; shift 2 ;;
         --update) UPDATE_IMG=$2; shift 2 ;;
+        --erase-keyvault) ERASE_KEYVAULT=1; shift ;;
         *) echo "unknown argument: $1" >&2; exit 1 ;;
     esac
 done
 
 WRAPPED=$(mktemp --suffix=.bin)
-trap 'rm -f "$WRAPPED"' EXIT
+BLANK=$(mktemp --suffix=.bin)
+trap 'rm -f "$WRAPPED" "$BLANK"' EXIT
 python3 "$HERE/psoc_e8_mcuboot_wrap.py" wolfboot.bin "$WRAPPED"
 
 CMDS="init; reset init"
@@ -44,6 +52,15 @@ CMDS="$CMDS; verify_image $WRAPPED 0x60100000 bin"
 CMDS="$CMDS; flash write_image erase $BOOT_IMG $BOOT_ADDR bin"
 if [ -n "$UPDATE_IMG" ]; then
     CMDS="$CMDS; flash write_image erase $UPDATE_IMG $UPDATE_ADDR bin"
+fi
+if [ "$ERASE_KEYVAULT" = 1 ]; then
+    # The RRAM loader programs through the Non-secure system-bus alias.
+    KV=$(sed -n 's/^WOLFBOOT_KEYVAULT_ADDRESS?*=[[:space:]]*\(0x[0-9a-fA-F]*\).*/\1/p' .config | tail -1)
+    KV_SIZE=$(sed -n 's/^WOLFBOOT_KEYVAULT_SIZE?*=[[:space:]]*\(0x[0-9a-fA-F]*\).*/\1/p' .config | tail -1)
+    [ -n "$KV" ] && [ -n "$KV_SIZE" ] || { echo "no WOLFBOOT_KEYVAULT_* in .config" >&2; exit 1; }
+    head -c $((KV_SIZE)) /dev/zero | tr '\0' '\377' > "$BLANK"
+    KV_NS=$(printf "0x%08x" $(( (KV & 0x0FFFFFFF) | 0x20000000 )))
+    CMDS="$CMDS; flash write_image erase $BLANK $KV_NS bin"
 fi
 # "reset run" would leave the part in KitProg3 acquire mode.
 CMDS="$CMDS; reset halt; resume; shutdown"

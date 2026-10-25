@@ -26,8 +26,15 @@
 
 #include <stdint.h>
 
+/* A host-built unit test cannot assemble the barriers; the compiler barrier
+ * alone stands in there. */
+#if defined(__arm__) || defined(__ARM_ARCH)
 #define ISB() __asm__ volatile ("isb" ::: "memory")
 #define DSB() __asm__ volatile ("dsb" ::: "memory")
+#else
+#define ISB() __asm__ volatile ("" ::: "memory")
+#define DSB() __asm__ volatile ("" ::: "memory")
+#endif
 
 /* Each memory has four aliases (S/NS x code/system bus). Within an SMIF
  * window the low 26 bits are the device offset. */
@@ -194,5 +201,74 @@
 #define NOR_SR_E_ERR            (1U << 5)
 #define NOR_SR_P_ERR            (1U << 6)
 #define NOR_PAGE_SIZE           (256U)
+
+/* Memory protection controllers, ROT view. Each LUT word holds eight 4-bit
+ * entries per block: bit 0 Non-secure, bit 1 read, bit 2 write. */
+#define RAMC1_MPC_BASE          (0x52244000UL)
+#define SMIF0_AHB_MPC_BASE      (0x54454000UL)
+#define MPC_ROT_CTRL(b)         (*(volatile uint32_t *)((b) + 0x200UL))
+#define MPC_ROT_BLK_MAX(b)      (*(volatile uint32_t *)((b) + 0x208UL))
+#define MPC_ROT_BLK_CFG(b)      (*(volatile uint32_t *)((b) + 0x20CUL))
+#define MPC_ROT_BLK_IDX(b)      (*(volatile uint32_t *)((b) + 0x210UL))
+#define MPC_ROT_BLK_PC(b)       (*(volatile uint32_t *)((b) + 0x214UL))
+#define MPC_ROT_BLK_LUT(b)      (*(volatile uint32_t *)((b) + 0x218UL))
+#define MPC_ROT_CTRL_AUTO_INC   (1UL << 8)
+#define MPC_ROT_BLK_CFG_SIZE_Msk (0xFUL)
+#define MPC_ROT_BLK_CFG_INIT_BUSY (1UL << 31)
+#define MPC_ROT_BLKS_PER_IDX    (8U)
+#define MPC_ROT_NS_RW           (0x7UL)
+/* Protection context of the CM33, Secure and Non-secure alike. */
+#define PSOC_E8_PC_CM33         (2U)
+
+/* SAU */
+#define SAU_CTRL                (*(volatile uint32_t *)(0xE000EDD0UL))
+#define SAU_RNR                 (*(volatile uint32_t *)(0xE000EDD8UL))
+#define SAU_RBAR                (*(volatile uint32_t *)(0xE000EDDCUL))
+#define SAU_RLAR                (*(volatile uint32_t *)(0xE000EDE0UL))
+#define SAU_CTRL_ENABLE         (1UL << 0)
+#define SAU_RLAR_ENABLE         (1UL << 0)
+#define SAU_RLAR_NSC            (1UL << 1)
+
+/* Crypto block TRNG, used to seed the Secure world's DRBG. */
+#define CRYPTO_BASE             (0x52440000UL)
+#define CRYPTO_CTL              (*(volatile uint32_t *)(CRYPTO_BASE + 0x000UL))
+#define CRYPTO_INTR             (*(volatile uint32_t *)(CRYPTO_BASE + 0x100UL))
+/* INTR flags are write-one-to-clear. */
+#define CRYPTO_INTR_CLR(m)      (CRYPTO_INTR = (m))
+#define CRYPTO_TR_CTL0          (*(volatile uint32_t *)(CRYPTO_BASE + 0x280UL))
+#define CRYPTO_TR_CTL1          (*(volatile uint32_t *)(CRYPTO_BASE + 0x284UL))
+#define CRYPTO_TR_CTL2          (*(volatile uint32_t *)(CRYPTO_BASE + 0x288UL))
+#define CRYPTO_TR_CMD           (*(volatile uint32_t *)(CRYPTO_BASE + 0x290UL))
+#define CRYPTO_TR_RESULT        (*(volatile uint32_t *)(CRYPTO_BASE + 0x298UL))
+#define CRYPTO_TR_GARO_CTL      (*(volatile uint32_t *)(CRYPTO_BASE + 0x2A0UL))
+#define CRYPTO_TR_FIRO_CTL      (*(volatile uint32_t *)(CRYPTO_BASE + 0x2A4UL))
+#define CRYPTO_TR_MON_CTL       (*(volatile uint32_t *)(CRYPTO_BASE + 0x2C0UL))
+#define CRYPTO_TR_MON_CMD       (*(volatile uint32_t *)(CRYPTO_BASE + 0x2C8UL))
+#define CRYPTO_TR_MON_RC_CTL    (*(volatile uint32_t *)(CRYPTO_BASE + 0x2D0UL))
+#define CRYPTO_TR_MON_AP_CTL    (*(volatile uint32_t *)(CRYPTO_BASE + 0x2E0UL))
+#define CRYPTO_STATUS           (*(volatile uint32_t *)(CRYPTO_BASE + 0x1004UL))
+#define CRYPTO_CTL_ENABLED      (1UL << 31)
+#define CRYPTO_INTR_TR_INITIALIZED (1UL << 2)
+#define CRYPTO_INTR_TR_DATA_AVAILABLE (1UL << 3)
+#define CRYPTO_INTR_TR_AP_ERROR (1UL << 19)
+#define CRYPTO_INTR_TR_RC_ERROR (1UL << 20)
+#define CRYPTO_INTR_TR_ALL      (CRYPTO_INTR_TR_INITIALIZED | \
+                                 CRYPTO_INTR_TR_DATA_AVAILABLE | \
+                                 CRYPTO_INTR_TR_AP_ERROR | \
+                                 CRYPTO_INTR_TR_RC_ERROR)
+/* TR_CTL0: init delay 3, von Neumann correction, stop on either health test
+ * failure. TR_CTL1: all six ring oscillators. */
+#define CRYPTO_TR_CTL0_DEFAULT  ((3UL << 16) | (1UL << 24) | (1UL << 28) | \
+                                 (1UL << 29))
+#define CRYPTO_TR_CTL1_ALL_RO   (0x3FUL)
+#define CRYPTO_TR_POLY          (0x04C11DB7UL)
+#define CRYPTO_TR_MON_BS_TR     (2UL)     /* monitor the TRNG bit stream */
+#define CRYPTO_TR_MON_START_AP_RC (0x3UL)
+#define CRYPTO_TR_RC_CUTOFF     (255UL)
+#define CRYPTO_TR_AP_CTL        ((65535UL << 16) | 65535UL)
+
+/* Console gateway for the Non-secure application. */
+#define PSOC_E8_NSC_UART_MAX    (256U)
+void psoc_e8_nsc_uart_write(const char *buf, uint32_t len);
 
 #endif /* PSOC_E8_H_INCLUDED */

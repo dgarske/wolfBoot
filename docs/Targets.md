@@ -9882,7 +9882,7 @@ Every FIFO and bus wait in both drivers is bounded, so a device that is absent o
 
 The Infineon PSOC Edge E8 family (PSE8x, CAT1D) pairs a Cortex-M33 with TrustZone and a Cortex-M55 behind a Secure Enclave, which runs the boot ROM and Infineon's extended boot. wolfBoot runs on the CM33 in the Secure state as the first image extended boot launches. The port is bare metal and needs no Peripheral Driver Library or BSP. Board differences are make options, and `config/examples/psoc_e8_ai.config` describes KIT_PSE84_AI.
 
-Verified on KIT_PSE84_AI (PSE846GPS2DBZC4A): boot from QSPI under the factory extended boot, ECC256 verification and handoff, A/B update with confirmation, resumption of an update interrupted mid-swap, RRAM write and erase, and the wolfCrypt test and benchmark. Booting from RRAM (`PSOC_E8_BOOT_RRAM=1`) is build-tested only. The CM55 is not started.
+Verified on KIT_PSE84_AI (PSE846GPS2DBZC4A): boot from QSPI under the factory extended boot, ECC256 verification and handoff, A/B update with confirmation, resumption of an update interrupted mid-swap, RRAM write and erase, and the wolfCrypt test and benchmark. With TrustZone, the Non-secure application booting from the Secure wolfBoot, the A/B update through the gateway calls, Secure-memory isolation and the wolfHSM client test suite against the Secure server were verified on the same board. Booting from RRAM (`PSOC_E8_BOOT_RRAM=1`) is build-tested only. The CM55 is not started.
 
 ### Boot chain and memory
 
@@ -9944,9 +9944,31 @@ tools/scripts/psoc_e8/psoc_e8_flash.sh --update test-app/image_v2_signed.bin
 
 `make WOLFCRYPT_TEST=1 WOLFCRYPT_BENCHMARK=1` adds the software wolfCrypt test and benchmark to the test application. Its RNG seed is deterministic and only for testing.
 
+### TrustZone and wolfHSM
+
+`config/examples/psoc_e8_ai-tz.config` runs wolfBoot in the Secure state and the application Non-secure. `config/examples/psoc_e8_ai-tz-wolfhsm.config` adds a wolfHSM server in the Secure world (`WOLFCRYPT_TZ_WOLFHSM=1`), which the Non-secure application reaches as a wolfHSM client through one gateway call, as on STM32H5 (see [wolfHSM.md](wolfHSM.md)).
+
+```
+0x18100000 - 0x1813BFFF  wolfBoot slot (Secure)
+0x1813C000 - 0x1813FFFF  NSC gateway veneers
+0x08140000 - 0x0823FFFF  BOOT partition, Non-secure alias
+0x18240000 - 0x1837FFFF  UPDATE and SWAP, Secure
+0x24080000 - 0x240FFFFF  SRAM1, Non-secure application RAM
+0x34058000 - 0x3407FFFF  SRAM0 top, Secure wolfHSM heap
+0x32040000 - 0x3204FFFF  RRAM, wolfHSM NVM (WOLFBOOT_KEYVAULT_*)
+```
+
+The CM33 runs both worlds in protection context 2, so `hal_init()` grants that context Non-secure access to the boot partition in the SMIF memory protection controller and to SRAM1 in its controller, and adds SAU regions for those and the gateway. wolfBoot then reads and verifies the boot partition through its Non-secure alias. Peripherals stay Secure: the application updates through the `wolfBoot_nsc_*` calls and prints through a console gateway. The crypto block's TRNG, with both health monitors running, seeds the Secure DRBG.
+
+Fresh RRAM reads as zero, which the wolfHSM NVM does not accept as empty, so program a board once with `--erase-keyvault`, which fills the key store with 0xFF and destroys anything stored there:
+
+```sh
+tools/scripts/psoc_e8/psoc_e8_flash.sh --erase-keyvault
+```
+
 ### Booting from RRAM
 
-`PSOC_E8_BOOT_RRAM=1` links wolfBoot at `0x12011400` in the RRAM user area, keeping the partitions in QSPI. Extended boot only launches it once the boot policy is reprovisioned with Infineon's Edge Protect Tools, which this port does not automate. RRAM is written in 16-byte blocks through the RRAMC indirect-write action, under the IPC and PC_LOCK locks. It has no erase, so `hal_flash_erase()` writes zeros.
+`PSOC_E8_BOOT_RRAM=1` links wolfBoot at `0x12011400` in the RRAM user area, keeping the partitions in QSPI. Extended boot only launches it once the boot policy is reprovisioned with Infineon's Edge Protect Tools, which this port does not automate. RRAM is written in 16-byte blocks through the RRAMC indirect-write action, under the IPC and PC_LOCK locks. It has no erase, so `hal_flash_erase()` fills the range with 0xFF to read like erased NOR.
 
 ## Infineon AURIX TC3xx
 

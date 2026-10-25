@@ -383,6 +383,11 @@ ifeq ($(TARGET),stm32n6)
     MAIN_TARGET:=wolfboot.bin test-app/image_v1_signed.bin
 endif
 
+ifeq ($(TARGET),psoc_e8)
+	# The boot partition is linked in the Non-secure alias
+    MAIN_TARGET:=wolfboot.bin test-app/image_v1_signed.bin
+endif
+
 ifeq ($(TARGET),m2354)
 	# Secure and non-secure views are 256MB apart in the address map
     MAIN_TARGET:=wolfboot.bin test-app/image_v1_signed.bin

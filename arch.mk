@@ -773,9 +773,18 @@ ifeq ($(ARCH),ARM)
     else
       ARCH_FLASH_OFFSET=0x18100000
       WOLFBOOT_ORIGIN=0x18100400
-      BOOTLOADER_PARTITION_SIZE=$$(( $(WOLFBOOT_PARTITION_BOOT_ADDRESS) - $(WOLFBOOT_ORIGIN)))
+      # The boot partition is in the Non-secure alias with TZEN=1.
+      BOOTLOADER_PARTITION_SIZE=$$(( ($(WOLFBOOT_PARTITION_BOOT_ADDRESS) | 0x10000000) - $(WOLFBOOT_ORIGIN)))
     endif
-    LSCRIPT_IN=hal/$(TARGET).ld
+    ifeq ($(TZEN),1)
+      LSCRIPT_IN=hal/$(TARGET)-tz.ld
+      OBJS+=hal/psoc_e8_tz.o
+      # wolfHSM NVM in the RRAM user area, Secure.
+      WOLFBOOT_KEYVAULT_ADDRESS?=0x32040000
+      WOLFBOOT_KEYVAULT_SIZE?=0x10000
+    else
+      LSCRIPT_IN=hal/$(TARGET).ld
+    endif
     # Board wiring, defaulted for KIT_PSE84_AI.
     PSOC_E8_UART_SCB?=2
     PSOC_E8_UART_PORT?=6
