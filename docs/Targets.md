@@ -9097,6 +9097,7 @@ Notable options in [config/examples/nai_68int6.config](../config/examples/nai_68
 |---|---|
 | `X86_UART_NUMBER=2` | LPSS UART2 for all three FSP phases (Kontron uses 0) |
 | `ACPI=1` | Required. Generates ACPI tables (RSDP/XSDT/FADT/MADT/MCFG and a minimal DSDT); the board's PCI interrupt routing is only in the DSDT `_PRT`, since the MP table is the Kontron one |
+| `FSP_NVS_CACHE=1`, `FSP_NVS_BASE`, `FSP_NVS_SIZE` | Keeps FSP-M's memory training data (its non-volatile storage HOB) in a 128 KB area of the BIOS region below the wolfBoot window, so later boots skip full memory training. Stage 1 passes a valid copy back through `NvsBufferPtr`; stage 2 rewrites it, before FSP-S and before the BIOS region is locked, only when it changes. The record is keyed on the FSP-M revision and UPDs, so a change to either falls back to full training |
 | `ANTI_ROLLBACK=1` | Persistent version floor and boot audit counters in TPM NV |
 | `MEASURED_BOOT=1`, `MEASURED_PCR_OS=4` | Firmware into PCR 0, the verified OS image into PCR 4 |
 | `WOLFBOOT_BOOT_DISK=0` | Boot from GPT partitions; the A/B indices (sda3/sda4) are set in `src/update_disk.c` |

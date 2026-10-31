@@ -42,6 +42,9 @@
 #include <loader.h>
 #include <tpm.h>
 #endif
+#ifdef WOLFBOOT_FSP_NVS_CACHE
+#include <x86/fsp_nvs.h>
+#endif
 
 
 #define WOLFBOOT_X86_STACK_SIZE 0x10000
@@ -586,6 +589,10 @@ void start(uint32_t stack_base, uint32_t stack_top, uint64_t timestamp,
     if (status != 0) {
         panic();
     }
+#if defined(WOLFBOOT_FSP_NVS_CACHE) && defined(BUILD_LOADER_STAGE1)
+    fsp_nvs_apply(udp_m_parameter, fsp_m_info_header->CfgRegionSize,
+                  fsp_m_info_header->ImageRevision);
+#endif
 
 #if defined(WOLFBOOT_DUMP_FSP_UPD)
     wolfBoot_printf("Dumping fspm udp (%d bytes)" ENDLINE, (int)fsp_m_info_header->CfgRegionSize);
