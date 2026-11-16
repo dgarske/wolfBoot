@@ -4949,6 +4949,24 @@ Typical boot timing with ECC384/SHA384 signing:
 
 ---
 
+### Post-quantum signed and encrypted images
+
+Two example configurations sign with ML-DSA-87 and encrypt the image with AES-256:
+
+- `config/examples/versal_vmk180_pq.config` - two fixed slots in QSPI (`0x800000` and `0xC00000`). The flash is not memory mapped, so wolfBoot reads the ciphertext of the selected slot into DDR at `WOLFBOOT_LOAD_ADDRESS`, decrypts it in place and verifies it there.
+- `config/examples/versal_vmk180_sdcard_pq.config` - the SD card A/B layout below with the same signature and cipher.
+
+Sign and encrypt an image with the key tools (`enc_key.bin` is the 32-byte key followed by the 16-byte nonce):
+
+```sh
+ML_DSA_LEVEL=5 IMAGE_HEADER_SIZE=12288 ./tools/keytools/sign --ml_dsa --sha384 \
+    --aes256 --encrypt enc_key.bin app.bin wolfboot_signing_private_key.der 1
+```
+
+The image key comes from `hal/versal_enckey.c` through the `CUSTOM_ENCRYPT_KEY` hooks. It is a fixed demonstration key and nonce compiled into wolfBoot: replace `wolfBoot_get_encrypt_key()` with a read from eFuse, BBRAM or a PUF-wrapped store for anything beyond a demo, and do not reuse one key and nonce across images.
+
+The QSPI configuration also sets `DUALBOOT_ROLLBACK_UNCONFIRMED=1` (see [compile.md](compile.md#roll-back-an-unconfirmed-image-in-dual-boot-mode)), and wolfBoot reports the slot it booted to the application in the device tree as `/chosen/wolfboot,boot-part` (0 = boot slot, 1 = update slot), so a bare-metal application can confirm its own slot and write an update to the other one. ML-DSA-87 verification needs a deep stack; the EL2 stack in `hal/versal.ld` is sized for it.
+
 ### SD Card Boot (MBR + A/B)
 
 Use `config/examples/versal_vmk180_sdcard.config`. This uses the Arasan SDHCI controller and an **MBR** partitioned SD card.

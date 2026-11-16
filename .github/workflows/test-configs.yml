@@ -1667,6 +1667,18 @@ jobs:
       arch: aarch64
       config-file: ./config/examples/versal_vmk180_sdcard.config
 
+  versal_vmk180_pq_test:
+    uses: ./.github/workflows/test-build-aarch64.yml
+    with:
+      arch: aarch64
+      config-file: ./config/examples/versal_vmk180_pq.config
+
+  versal_vmk180_sdcard_pq_test:
+    uses: ./.github/workflows/test-build-aarch64.yml
+    with:
+      arch: aarch64
+      config-file: ./config/examples/versal_vmk180_sdcard_pq.config
+
   # FIT read from a filesystem with no kernel load/entry and no fdt
   # sub-image, so the staging addresses come from the build.
   versal_vmk180_sdcard_fit_file_test:

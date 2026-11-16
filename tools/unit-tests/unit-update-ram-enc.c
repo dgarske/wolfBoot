@@ -359,6 +359,77 @@ START_TEST(test_ram_decrypt_one_over_rejected)
 }
 END_TEST
 
+#ifdef WOLFBOOT_RAM_DECRYPT_EXT
+/* The ciphertext is staged from external flash: a short read of the header
+ * must be rejected before anything is decrypted. */
+START_TEST(test_ram_decrypt_ext_header_short_read_rejected)
+{
+    const uint32_t len = 1024;
+    uint8_t *enc = malloc(IMAGE_HEADER_SIZE + len);
+    uint8_t *dst = malloc(WOLFBOOT_PARTITION_SIZE);
+    int ret;
+
+    ck_assert_ptr_nonnull(enc);
+    ck_assert_ptr_nonnull(dst);
+    memset(enc, 0, IMAGE_HEADER_SIZE + len);
+
+    setup_crypto_key();
+    make_encrypted_header(enc, len);
+
+    mock_ext_flash_short_len = IMAGE_HEADER_SIZE;
+    mock_ext_flash_short_bytes = 1;
+    ret = wolfBoot_ram_decrypt(enc, dst);
+    /* Clear the mock before asserting: the suite runs CK_NOFORK. */
+    mock_ext_flash_short_len = 0;
+    mock_ext_flash_short_bytes = 0;
+    ck_assert_int_eq(ret, -1);
+
+    free(enc);
+    free(dst);
+}
+END_TEST
+
+/* A short read of the image body must be rejected, and the ciphertext in
+ * flash is left as written. */
+START_TEST(test_ram_decrypt_ext_body_short_read_rejected)
+{
+    const uint32_t len = 1024;
+    const uint32_t total = IMAGE_HEADER_SIZE + len;
+    uint8_t *enc = malloc(total);
+    uint8_t *ref = malloc(total);
+    uint8_t *dst = malloc(WOLFBOOT_PARTITION_SIZE);
+    int ret;
+
+    ck_assert_ptr_nonnull(enc);
+    ck_assert_ptr_nonnull(ref);
+    ck_assert_ptr_nonnull(dst);
+    ck_assert_uint_ne(len, IMAGE_HEADER_SIZE);
+    memset(enc, 0, total);
+
+    setup_crypto_key();
+    make_encrypted_header(enc, len);
+    memcpy(ref, enc, total);
+
+    mock_ext_flash_short_len = (int)len;
+    mock_ext_flash_short_bytes = 1;
+    ret = wolfBoot_ram_decrypt(enc, dst);
+    mock_ext_flash_short_len = 0;
+    mock_ext_flash_short_bytes = 0;
+    ck_assert_int_eq(ret, -1);
+    ck_assert_mem_eq(enc, ref, total);
+
+    /* The same image reads in full once the flash behaves. */
+    ret = wolfBoot_ram_decrypt(enc, dst);
+    ck_assert_int_eq(ret, 0);
+    ck_assert_mem_eq(enc, ref, total);
+
+    free(enc);
+    free(ref);
+    free(dst);
+}
+END_TEST
+#endif /* WOLFBOOT_RAM_DECRYPT_EXT */
+
 Suite *wolfboot_suite(void)
 {
     Suite *s = suite_create("wolfboot-ram-decrypt");
@@ -368,6 +439,9 @@ Suite *wolfboot_suite(void)
     TCase *bitflip = tcase_create("ram_decrypt length bit-flip rejected");
     TCase *maxvalid = tcase_create("ram_decrypt exact-max valid");
     TCase *oneover = tcase_create("ram_decrypt one block over rejected");
+#ifdef WOLFBOOT_RAM_DECRYPT_EXT
+    TCase *extshort = tcase_create("ram_decrypt ext flash short read rejected");
+#endif
 
     tcase_add_test(valid, test_ram_decrypt_valid);
     tcase_add_test(oversize, test_ram_decrypt_oversize_rejected);
@@ -375,6 +449,10 @@ Suite *wolfboot_suite(void)
     tcase_add_test(bitflip, test_ram_decrypt_len_bitflip_rejected);
     tcase_add_test(maxvalid, test_ram_decrypt_max_valid);
     tcase_add_test(oneover, test_ram_decrypt_one_over_rejected);
+#ifdef WOLFBOOT_RAM_DECRYPT_EXT
+    tcase_add_test(extshort, test_ram_decrypt_ext_header_short_read_rejected);
+    tcase_add_test(extshort, test_ram_decrypt_ext_body_short_read_rejected);
+#endif
 
     suite_add_tcase(s, valid);
     suite_add_tcase(s, oversize);
@@ -382,6 +460,9 @@ Suite *wolfboot_suite(void)
     suite_add_tcase(s, bitflip);
     suite_add_tcase(s, maxvalid);
     suite_add_tcase(s, oneover);
+#ifdef WOLFBOOT_RAM_DECRYPT_EXT
+    suite_add_tcase(s, extshort);
+#endif
 
     tcase_set_timeout(bitflip, 5);
     tcase_set_timeout(valid, 5);
@@ -389,6 +470,9 @@ Suite *wolfboot_suite(void)
     tcase_set_timeout(overflow, 5);
     tcase_set_timeout(maxvalid, 5);
     tcase_set_timeout(oneover, 5);
+#ifdef WOLFBOOT_RAM_DECRYPT_EXT
+    tcase_set_timeout(extshort, 5);
+#endif
 
     return s;
 }

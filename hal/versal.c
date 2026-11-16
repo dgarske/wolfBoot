@@ -821,7 +821,10 @@ static int qspi_transfer(QspiDev_t *dev, const uint8_t *txData, uint32_t txLen,
         chunkLen = writeLen;
 
         while (chunkLen > 0 && ret == 0) {
-            uint32_t chunk = (chunkLen > 255) ? 255 : chunkLen;
+            /* Dual parallel stripes bytes across the two devices, so a chunk
+             * boundary must fall on an even byte count. */
+            uint32_t chunkMax = dev->stripe ? 254 : 255;
+            uint32_t chunk = (chunkLen > chunkMax) ? chunkMax : chunkLen;
             chunkEntry = txEntry | GQSPI_GEN_FIFO_IMM(chunk);
 
             ret = qspi_gen_fifo_push(chunkEntry);
@@ -1499,6 +1502,16 @@ int hal_dts_fixup(void* dts_addr, uint32_t capacity)
     }
 #ifdef WOLFBOOT_UPDATE_DISK
     (void)wolfBoot_disk_dts_fixup(&ctx);
+#elif defined(WOLFBOOT_DUALBOOT) && defined(WOLFBOOT_FIXED_PARTITIONS)
+    if (wolfBoot_ramboot_part() >= 0) {
+        ret = fdt_fixup_chosen_val(&ctx, "wolfboot,boot-part",
+            (uint32_t)wolfBoot_ramboot_part());
+        if (ret != 0) {
+            wolfBoot_printf("FDT: Failed to set wolfboot,boot-part (%d)\n",
+                ret);
+            return ret;
+        }
+    }
 #endif
 
     return 0;

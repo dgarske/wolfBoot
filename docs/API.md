@@ -27,11 +27,15 @@ Basic interaction from the application is provided via the following high-level 
 
 `void wolfBoot_success(void)`
 
+`void wolfBoot_success_part(uint8_t part)`
+
 ### Firmware version
 
 Current (boot) firmware and update firmware versions can be retrieved from the application using:
 
 `uint32_t wolfBoot_get_image_version(uint8_t part)`
+
+On an MMU target that keeps its images encrypted in flash (`EXT_ENCRYPTED` with `MMU`), only the bootloader holds the key, so this call returns 0 from the application for an encrypted partition.
 
 Or via the shortcut macros:
 
